@@ -243,7 +243,21 @@ const ERTRAG_STEIGERUNG = 1.20;  // Gebäudestufe: 20 % mehr Ertrag
 const START_MAX_PLANETEN = 5;
 const START_MAX_HABITATE = 5;
 const FRACHTER_KAPAZITAET = 400;   // Ladung je Frachter und Sammelmission
-const KAMPF_VERLUST = 0.35;        // Anteil der Flotte, der bei einem knappen Sieg verlorengeht
+const KAMPF_RUNDEN = 8;            // Höchstzahl der Gefechtsrunden
+const SCHADEN_STREUUNG = 0.15;     // ±15 % Zufall auf den Rundenschaden
+const SCHADEN_FAKTOR = 0.90;       // dämpft den Rundenschaden — kleiner = längere Gefechte
+const PANZER_ZU_LEBEN = 7;         // wie viel Widerstandskraft ein Punkt Panzerung gibt
+
+/* Kontertabelle: Was richtet die Zeile gegen die Spalte aus?
+   Über 1 = stark dagegen, unter 1 = schwach.
+   Jäger sind zu wendig für schwere Geschütze, reissen aber schwere
+   Schiffe auf. Korvetten fangen Jäger ab. Kreuzer zermalmen Korvetten. */
+const KONTER = {
+  jaeger:   { jaeger:1.0, korvette:0.6, kreuzer:1.7, pirat:1.0 },
+  korvette: { jaeger:1.8, korvette:1.0, kreuzer:0.7, pirat:1.1 },
+  kreuzer:  { jaeger:0.5, korvette:1.6, kreuzer:1.0, pirat:1.2 },
+  pirat:    { jaeger:1.1, korvette:1.0, kreuzer:0.9, pirat:1.0 },
+};
 const WOHNRAUM_JE_STUFE = 10;
 const LAGER_JE_STUFE = 2000;
 
@@ -266,6 +280,40 @@ const BILDER = {
   photonenwolke:    "",
   methanwolke:      "",
   antike:           "",
+};
+
+/* ============================================================
+   0c. STERNTYPEN
+   Vorerst rein optisch: Jedes System bekommt beim Erzeugen einen
+   Typ mit gleicher Wahrscheinlichkeit. Die Felder "wirkung" sind
+   schon angelegt, werden aber noch nirgends ausgewertet — dort
+   kommen später Einflüsse auf Planetenverteilung und Erträge hin.
+   ============================================================ */
+const STERNE = {
+  gelber_stern:    { name:"Gelber Hauptreihenstern", bild:"bilder/stern-gelber-stern.webp",
+                     farbe:"#f5d76e", groesse:1.00,
+                     beschreibung:"Stabil und mittelwarm — der Normalfall.", wirkung:{} },
+  oranger_riese:   { name:"Oranger Riese", bild:"bilder/stern-oranger-riese.webp",
+                     farbe:"#e08a3c", groesse:1.35,
+                     beschreibung:"Aufgeblähter alter Stern mit weiter Hülle.", wirkung:{} },
+  roter_zwerg:     { name:"Roter Zwerg", bild:"bilder/stern-roter-zwerg.webp",
+                     farbe:"#d4553a", groesse:0.70,
+                     beschreibung:"Klein, kühl und langlebig. Der häufigste Sterntyp.", wirkung:{} },
+  roter_ueberriese:{ name:"Roter Überriese", bild:"bilder/stern-roter-ueberriese.webp",
+                     farbe:"#a83c28", groesse:1.60,
+                     beschreibung:"Gewaltig und instabil, dem Ende nahe.", wirkung:{} },
+  blauer_riese:    { name:"Blauer Riese", bild:"bilder/stern-blauer-riese.webp",
+                     farbe:"#8fc4f5", groesse:1.30,
+                     beschreibung:"Heiß, hell und kurzlebig. Strahlt gewaltig.", wirkung:{} },
+  weisser_zwerg:   { name:"Weißer Zwerg", bild:"bilder/stern-weisser-zwerg.webp",
+                     farbe:"#dce8f5", groesse:0.45,
+                     beschreibung:"Ausgebrannter Kern, dicht und winzig.", wirkung:{} },
+  brauner_zwerg:   { name:"Brauner Zwerg", bild:"bilder/stern-brauner-zwerg.webp",
+                     farbe:"#7a4a35", groesse:0.60,
+                     beschreibung:"Ein verhinderter Stern. Glimmt nur.", wirkung:{} },
+  neutronenstern:  { name:"Neutronenstern", bild:"bilder/stern-neutronenstern.webp",
+                     farbe:"#c9a3f0", groesse:0.55,
+                     beschreibung:"Überrest einer Sternexplosion. Unfassbar dicht.", wirkung:{} },
 };
 
 /* ============================================================
@@ -327,6 +375,28 @@ const GEBAEUDE = {
 /* ============================================================
    3b. SCHIFFE — als Stückzahlen, nicht als Einzelobjekte
    ============================================================ */
+/* ============================================================
+   3c. PIRATENVERBÄNDE — jeder Typ kämpft anders
+   ============================================================ */
+const PIRATEN_ARTEN = {
+  schmuggler: { name:"Schmugglerring",
+                beschreibung:"Viele kleine, schnelle Schiffe. Reich, aber schlecht gepanzert.",
+                mischung:{ jaeger:0.75, korvette:0.25, kreuzer:0 },
+                beute:1.4, wachstum:0.06 },
+  freibeuter: { name:"Freibeuterflotte",
+                beschreibung:"Ausgewogener Verband aus Jägern und Korvetten.",
+                mischung:{ jaeger:0.45, korvette:0.45, kreuzer:0.10 },
+                beute:1.0, wachstum:0.09 },
+  kriegsherr: { name:"Kriegsherr",
+                beschreibung:"Wenige, aber schwere Schiffe. Harte Nuss.",
+                mischung:{ jaeger:0.15, korvette:0.35, kreuzer:0.50 },
+                beute:0.8, wachstum:0.12 },
+  festung:    { name:"Piratenfestung",
+                beschreibung:"Verschanzt hinter Geschützstellungen. Wächst schnell und schickt Überfälle aus.",
+                mischung:{ jaeger:0.30, korvette:0.40, kreuzer:0.30 },
+                beute:1.6, wachstum:0.18, panzerbonus:1.5 },
+};
+
 const SCHIFFE = {
   sonde:        { name:"Sonde", rolle:"Erkundung", bauzeit:40,
                   beschreibung:"Deckt ein unerkundetes System auf. Wird dabei verbraucht.",
@@ -427,8 +497,11 @@ function karteErzeugen(){
     const winkel = rnd()*Math.PI*2;
     const radius = i===0 ? 0 : ring*27 + rnd()*9;
     const name = namen.splice(Math.floor(rnd()*namen.length),1)[0];
+    // Sterntyp: gleiche Chance für alle
+    const sternTypen = Object.keys(STERNE);
     const sys = { id:i, name, x:50+Math.cos(winkel)*radius, y:50+Math.sin(winkel)*radius*0.62,
-                  erkundet: i===0, objekte:[] };
+                  erkundet: i===0, objekte:[],
+                  stern: sternTypen[Math.floor(rnd()*sternTypen.length)] };
 
     const anzahl = zwischen(3,6);
     for(let j=0;j<anzahl;j++){
@@ -446,8 +519,15 @@ function karteErzeugen(){
       sys.objekte.push(objId);
       objId++;
     }
-    // Piratenpräsenz — blockiert Besiedlung, bis sie zerschlagen ist
-    sys.piraten = (i === 0 || rnd() < 0.5) ? 0 : Math.floor(200 + rnd()*1400);
+    // Piratenlager — blockiert Besiedlung, bis es zerschlagen ist
+    if(i === 0 || rnd() < 0.45){
+      sys.piraten = null;
+    }else{
+      const arten = Object.keys(PIRATEN_ARTEN);
+      const art = arten[Math.floor(rnd()*arten.length)];
+      const staerke = 8 + Math.floor(rnd()*20) + ring*7;   // Schiffe insgesamt
+      sys.piraten = { art, flotte: piratenFlotte(art, staerke) };
+    }
     systeme.push(sys);
   }
   return { systeme, objekte };
@@ -502,7 +582,7 @@ function neuesSpiel(){
 let spiel = laden();
 function laden(){
   try{
-    const roh = localStorage.getItem("aussenposten7");
+    const roh = localStorage.getItem("aussenposten8");
     if(!roh) return neuesSpiel();
     const s = JSON.parse(roh);
     if(!s.systeme || !s.objekte) return neuesSpiel();
@@ -517,7 +597,18 @@ function laden(){
     for(const t in SCHIFFE) if(!(t in s.schiffe)) s.schiffe[t] = 0;
     if(!Array.isArray(s.missionen)) s.missionen = [];
     if(!("werftauftrag" in s)) s.werftauftrag = null;
-    for(const sy of s.systeme) if(!("piraten" in sy)) sy.piraten = 0;
+    for(const sy of s.systeme){
+      if(!sy.stern){
+        const st = Object.keys(STERNE);
+        sy.stern = st[Math.floor(Math.random()*st.length)];
+      }
+      if(!("piraten" in sy)) sy.piraten = null;
+      // Alte Spielstände hatten nur eine Zahl — in einen Verband umwandeln
+      if(typeof sy.piraten === "number")
+        sy.piraten = sy.piraten > 0
+          ? { art:"freibeuter", flotte: piratenFlotte("freibeuter", Math.max(6, Math.round(sy.piraten/60))) }
+          : null;
+    }
     for(const r of RES) if(!(r in s.res)) s.res[r]=0;
     return s;
   }catch(e){ return neuesSpiel(); }
@@ -783,34 +874,106 @@ function sammelErtrag(objId, frachter){
   return ladung;
 }
 
+/* ------------------------------------------------------------
+   Rundenkampf
+   Beide Seiten feuern gleichzeitig. Wieviel Schaden ein Typ
+   anrichtet, hängt davon ab, auf wen er trifft — siehe KONTER.
+   Verluste einer Runde wirken sich erst in der nächsten aus,
+   deshalb wird ein früher Vorteil im Verlauf immer grösser.
+   ------------------------------------------------------------ */
+function flottenStaerke(flotte){
+  let n = 0; for(const t in flotte) n += flotte[t] || 0; return n;
+}
+function lebenspunkte(typ){
+  return (SCHIFFE[typ].panzerung || 0) * PANZER_ZU_LEBEN + 40;
+}
+
+// Schaden, den eine Flotte in einer Runde austeilt, aufgeteilt nach Zieltyp
+function schadenAusteilen(angreifer, verteidiger, bonus){
+  const zielAnteile = {};
+  const gesamt = flottenStaerke(verteidiger);
+  if(!gesamt) return {};
+  for(const t in verteidiger) zielAnteile[t] = verteidiger[t] / gesamt;
+
+  const schaden = {};
+  for(const zt in zielAnteile) schaden[zt] = 0;
+
+  for(const at in angreifer){
+    const n = angreifer[at]; if(!n) continue;
+    const roh = n * (SCHIFFE[at].angriff || 0) * bonus * SCHADEN_FAKTOR;
+    // Feuer verteilt sich auf die Zieltypen nach ihrem Anteil an der Flotte
+    for(const zt in zielAnteile){
+      const konter = (KONTER[at] && KONTER[at][zt]) || 1;
+      const streuung = 1 + (Math.random()*2 - 1) * SCHADEN_STREUUNG;
+      schaden[zt] += roh * zielAnteile[zt] * konter * streuung;
+    }
+  }
+  return schaden;
+}
+
+// Rechnet Schaden in Schiffsverluste um
+function verlusteAnwenden(flotte, schaden){
+  const verluste = {};
+  for(const t in flotte){
+    if(!flotte[t] || !schaden[t]) continue;
+    const gefallen = Math.min(flotte[t], Math.floor(schaden[t] / lebenspunkte(t)));
+    if(gefallen > 0){
+      flotte[t] -= gefallen;
+      verluste[t] = gefallen;
+      if(flotte[t] <= 0) delete flotte[t];
+    }
+  }
+  return verluste;
+}
+
 function kampf(sysId, schiffe){
   const sys = spiel.systeme[sysId];
-  let angriff = 0, panzerung = 0, anzahl = 0;
-  for(const t in schiffe){
-    angriff   += (SCHIFFE[t].angriff||0)   * schiffe[t];
-    panzerung += (SCHIFFE[t].panzerung||0) * schiffe[t];
-    anzahl    += schiffe[t];
-  }
-  const feind = sys.piraten;
-  const eigen = angriff + panzerung*0.5;
-  const ueberlegen = eigen / Math.max(1, feind);
+  const art = PIRATEN_ARTEN[sys.piraten.art];
+  const eigen = { ...schiffe };
+  const feind = { ...sys.piraten.flotte };
+  const feindStart = flottenStaerke(feind);
+  const panzerbonus = art.panzerbonus || 1;
 
-  const ueberlebende = {}, beute = {};
-  let bericht;
-  if(ueberlegen >= 1){
-    // Sieg — Verluste umso geringer, je klarer die Überlegenheit
-    const quote = Math.min(0.9, KAMPF_VERLUST / ueberlegen);
-    for(const t in schiffe) ueberlebende[t] = schiffe[t] - Math.floor(schiffe[t]*quote);
-    sys.piraten = 0;
-    for(const r of ["erz","silikat","kupfer","legierung"]) beute[r] = Math.floor(feind * 0.9);
-    bericht = `Sieg bei ${sys.name}. Piratenlager zerschlagen.`;
-  }else{
-    // Niederlage — schwere Verluste, der Gegner ist aber angeschlagen
-    for(const t in schiffe) ueberlebende[t] = Math.floor(schiffe[t]*ueberlegen*0.5);
-    sys.piraten = Math.max(60, Math.floor(feind - eigen*0.6));
-    bericht = `Niederlage bei ${sys.name}. Die Flotte war zu schwach.`;
+  const runden = [];
+  for(let r = 1; r <= KAMPF_RUNDEN; r++){
+    if(!flottenStaerke(eigen) || !flottenStaerke(feind)) break;
+
+    // Beide Seiten feuern auf den Stand zu Rundenbeginn
+    const schadenAufFeind = schadenAusteilen(eigen, feind, 1);
+    const schadenAufUns   = schadenAusteilen(feind, eigen, panzerbonus);
+
+    const feindVerlust = verlusteAnwenden(feind, schadenAufFeind);
+    const eigenVerlust = verlusteAnwenden(eigen, schadenAufUns);
+
+    runden.push({
+      nummer: r,
+      eigenVerlust, feindVerlust,
+      eigenRest: flottenStaerke(eigen),
+      feindRest: flottenStaerke(feind),
+    });
   }
-  return { ueberlebende, beute, bericht };
+
+  const feindWeg = flottenStaerke(feind) === 0;
+  const eigenWeg = flottenStaerke(eigen) === 0;
+
+  let bericht, beute = null;
+  if(feindWeg){
+    sys.piraten = null;
+    const wert = feindStart * 40 * art.beute;
+    beute = {};
+    for(const r of ["erz","silikat","kupfer","legierung"])
+      beute[r] = Math.floor(wert * (0.6 + Math.random()*0.6));
+    bericht = `Sieg bei ${sys.name} — ${art.name} zerschlagen.`;
+  }else if(eigenWeg){
+    sys.piraten.flotte = feind;
+    bericht = `Niederlage bei ${sys.name} — die Flotte wurde aufgerieben.`;
+  }else{
+    sys.piraten.flotte = feind;
+    bericht = `Unentschieden bei ${sys.name} — beide Seiten zogen sich zurück.`;
+  }
+
+  return { ueberlebende: eigen, beute, bericht, runden,
+           feindRest: flottenStaerke(feind) };
 }
 
 function missionAuswerten(m){
@@ -834,6 +997,7 @@ function missionAuswerten(m){
     m.schiffe = e.ueberlebende;
     m.ladung = e.beute;
     m.bericht = e.bericht;
+    m.runden = e.runden;
   }
 }
 
@@ -842,13 +1006,36 @@ function missionHeimkehr(m){
   if(m.ladung)
     for(const r in m.ladung) spiel.res[r] = (spiel.res[r]||0) + m.ladung[r];
   spiel.berichte = spiel.berichte || [];
-  spiel.berichte.unshift({ text:m.bericht, ladung:m.ladung, zeit:Date.now() });
+  spiel.berichte.unshift({ text:m.bericht, ladung:m.ladung, runden:m.runden||null, zeit:Date.now() });
   spiel.berichte = spiel.berichte.slice(0,5);
 }
 
 /* ============================================================
    11. AKTIONEN
    ============================================================ */
+// Verteilt eine Gesamtstärke nach der Mischung des Verbandes auf Schiffstypen
+function piratenFlotte(art, gesamt){
+  const m = PIRATEN_ARTEN[art].mischung, f = {};
+  for(const t in m){
+    const n = Math.round(gesamt * m[t]);
+    if(n > 0) f[t] = n;
+  }
+  if(!Object.keys(f).length) f.jaeger = 1;
+  return f;
+}
+function piratenStaerke(sys){
+  if(!sys.piraten) return 0;
+  let s = 0;
+  for(const t in sys.piraten.flotte)
+    s += sys.piraten.flotte[t] * ((SCHIFFE[t].angriff||0) + (SCHIFFE[t].panzerung||0)*0.5);
+  return Math.floor(s * (PIRATEN_ARTEN[sys.piraten.art].panzerbonus || 1));
+}
+function piratenAnzahl(sys){
+  if(!sys.piraten) return 0;
+  let n = 0; for(const t in sys.piraten.flotte) n += sys.piraten.flotte[t];
+  return n;
+}
+
 function entfernungSys(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
 function naechstesEigenesSystem(sys){
   let best = Infinity;
@@ -875,7 +1062,7 @@ function kolonieKosten(objId){
 function kannKolonisieren(objId){
   if(spiel.kolonien[objId]) return false;
   const obj = spiel.objekte[objId];
-  if(spiel.systeme[obj.systemId].piraten > 0) return false;     // erst aufräumen
+  if(spiel.systeme[obj.systemId].piraten) return false;         // erst aufräumen
   if(flotteFrei("siedlerschiff") < 1) return false;
   const art = OBJEKTE[obj.typ].art, z = zaehleKolonien();
   if(art === "planet"  && z.planeten >= maxPlaneten()) return false;
@@ -1148,13 +1335,14 @@ function galaxieKarte(){
     punkte += `<g class="punkt" data-system="${s.id}">
       ${offen?`<circle cx="${s.x}" cy="${s.y}" r="7" fill="none" stroke="var(--bernstein)" stroke-width="0.4" opacity=".8"/>`:""}
       ${anzKol?`<circle cx="${s.x}" cy="${s.y}" r="5.2" fill="none" stroke="var(--signal)" stroke-width="0.55"/>`:""}
-      <circle cx="${s.x}" cy="${s.y}" r="7" fill="${s.erkundet?"#f0e2b0":"#2a3d55"}" opacity=".13"/>
-      <circle cx="${s.x}" cy="${s.y}" r="3" fill="${s.erkundet?"#f0e2b0":"#33485f"}"/>
+      <circle cx="${s.x}" cy="${s.y}" r="7" fill="${s.erkundet?(STERNE[s.stern]?.farbe||"#f0e2b0"):"#2a3d55"}" opacity=".14"/>
+      <circle cx="${s.x}" cy="${s.y}" r="${s.erkundet?(2.2+(STERNE[s.stern]?.groesse||1)*1.1):3}"
+        fill="${s.erkundet?(STERNE[s.stern]?.farbe||"#f0e2b0"):"#33485f"}"/>
       <text x="${s.x}" y="${s.y+7.8}" text-anchor="middle" font-size="3.1" font-weight="600"
         fill="${s.erkundet?"var(--text)":"var(--schwach)"}">${s.erkundet?s.name:"unbekannt"}</text>
       ${s.erkundet?`<text x="${s.x}" y="${s.y+11.6}" text-anchor="middle" font-size="2.5"
-        fill="${s.piraten>0?"var(--alarm)":"var(--matt)"}">${s.piraten>0
-          ? "Piraten "+z0(s.piraten)
+        fill="${s.piraten?"var(--alarm)":"var(--matt)"}">${s.piraten
+          ? PIRATEN_ARTEN[s.piraten.art].name+" · "+piratenAnzahl(s)
           : s.objekte.length+" Objekte"+(anzKol?" · "+anzKol+" besiedelt":"")}</text>`:""}
     </g>`;
   }
@@ -1170,37 +1358,80 @@ function systemKarte(sys){
       <button data-sonde="${sys.id}" ${frei<1?"disabled":""} style="margin-top:11px">
         ${frei<1?"Keine Sonde verfügbar":"Sonde senden"}</button></div>`;
   }
-  let kopf = "";
-  if(sys.piraten > 0){
-    const eigen = ["jaeger","korvette","kreuzer"].reduce((a,t)=>
-      a + flotteFrei(t)*((SCHIFFE[t].angriff||0)+(SCHIFFE[t].panzerung||0)*0.5), 0);
-    const flotte = ["jaeger","korvette","kreuzer"].filter(t=>flotteFrei(t)>0)
-      .map(t=>`${flotteFrei(t)} ${SCHIFFE[t].name}`).join(", ") || "keine Kampfschiffe";
-    const aussicht = eigen >= sys.piraten*1.5 ? "gut" : eigen >= sys.piraten ? "" : "rot";
-    kopf = `<div style="padding:13px 14px 3px">
+  const sd = STERNE[sys.stern] || STERNE.gelber_stern;
+  let kopf = `<div style="padding:12px 14px 2px;display:flex;gap:11px;align-items:center;flex-wrap:wrap">
+    <img src="${sd.bild}" width="34" height="34" alt="" style="flex:none">
+    <div><div class="bezeichnung">${sys.name} <span class="stufe">${sd.name}</span></div>
+      <div class="erlaeuterung">${sd.beschreibung}</div></div></div>`;
+  if(sys.piraten){
+    const art = PIRATEN_ARTEN[sys.piraten.art];
+    const feindStaerke = piratenStaerke(sys);
+    const kampftypen = ["jaeger","korvette","kreuzer"];
+
+    // Eigene Kampfkraft und wie gut sie zur gegnerischen Mischung passt
+    let eigen = 0, eigenAnzahl = 0;
+    for(const t of kampftypen){
+      const n = flotteFrei(t); if(!n) continue;
+      eigenAnzahl += n;
+      let schnitt = 0, ziele = 0;
+      for(const ft in sys.piraten.flotte){
+        schnitt += (KONTER[t]?.[ft] || 1) * sys.piraten.flotte[ft];
+        ziele += sys.piraten.flotte[ft];
+      }
+      const passung = ziele ? schnitt/ziele : 1;
+      eigen += n * ((SCHIFFE[t].angriff||0)*passung + (SCHIFFE[t].panzerung||0)*0.5);
+    }
+
+    const feindListe = Object.keys(sys.piraten.flotte)
+      .map(t => `${sys.piraten.flotte[t]} ${SCHIFFE[t].name}`).join(" · ");
+    const eigenListe = kampftypen.filter(t=>flotteFrei(t)>0)
+      .map(t => `${flotteFrei(t)} ${SCHIFFE[t].name}`).join(" · ") || "keine Kampfschiffe";
+
+    const verhaeltnis = eigen / Math.max(1, feindStaerke);
+    const lage = verhaeltnis >= 1.4 ? "gut" : verhaeltnis >= 0.9 ? "" : "rot";
+    const urteil = eigenAnzahl === 0 ? "Bauen Sie zuerst Kampfschiffe."
+      : verhaeltnis < 0.7 ? "Aussichtslos — die Flotte würde aufgerieben."
+      : verhaeltnis < 0.9 ? "Unterlegen. Ein Sieg ist unwahrscheinlich."
+      : verhaeltnis < 1.4 ? "Ausgeglichen. Der Ausgang ist offen."
+      : "Überlegen. Der Sieg sollte gelingen.";
+
+    // Welcher eigene Typ trifft diesen Gegner am besten?
+    let bester = null, besterWert = 0;
+    for(const t of kampftypen){
+      let schnitt = 0, ziele = 0;
+      for(const ft in sys.piraten.flotte){
+        schnitt += (KONTER[t]?.[ft] || 1) * sys.piraten.flotte[ft];
+        ziele += sys.piraten.flotte[ft];
+      }
+      const w = ziele ? schnitt/ziele : 1;
+      if(w > besterWert){ besterWert = w; bester = t; }
+    }
+
+    kopf = `<div style="padding:13px 14px 4px">
       <div class="meldung rot" style="margin-top:0">
-        <strong>Piraten in ${sys.name}</strong> · Stärke <span class="zahl">${z0(sys.piraten)}</span>.
-        Solange sie hier sitzen, lässt sich im System nichts besiedeln.</div>
-      <div class="meldung ${aussicht}">Ihre Kampfkraft: <span class="zahl">${z0(eigen)}</span> (${flotte}).
-        ${eigen<=0?"Bauen Sie zuerst Kampfschiffe."
-          :eigen<sys.piraten?"Das reicht nicht — die Flotte würde aufgerieben."
-          :eigen<sys.piraten*1.5?"Knapp überlegen. Der Sieg kostet viele Schiffe."
-          :"Klar überlegen. Geringe Verluste zu erwarten."}</div>
-      <button data-angriff="${sys.id}" ${eigen<=0?"disabled":""} style="margin-top:9px">
-        ${eigen<=0?"Keine Flotte":"Gesamte Flotte entsenden"}</button></div>`;
+        <strong>${art.name} in ${sys.name}</strong> · ${piratenAnzahl(sys)} Schiffe
+        · Stärke <span class="zahl">${z0(feindStaerke)}</span><br>
+        <span style="color:var(--matt)">${art.beschreibung}</span><br>
+        <span style="color:var(--matt)">Verband: ${feindListe}</span></div>
+      <div class="meldung ${lage}">
+        Ihre Flotte: ${eigenListe} · gewichtete Stärke <span class="zahl">${z0(eigen)}</span><br>
+        ${urteil}${bester && besterWert > 1.15
+          ? ` <span style="color:var(--signal)">${SCHIFFE[bester].name} sind gegen diesen Verband besonders wirksam (×${besterWert.toFixed(2)}).</span>` : ""}
+      </div>
+      <button data-angriff="${sys.id}" ${eigenAnzahl<=0?"disabled":""} style="margin-top:9px">
+        ${eigenAnzahl<=0?"Keine Flotte":"Gesamte Flotte entsenden"}</button></div>`;
   }
+  const stern = STERNE[sys.stern] || STERNE.gelber_stern;
+  const sr = 7 * stern.groesse;          // Darstellungsradius nach Sterntyp
   let inhalt = `
-    <defs>
-      <radialGradient id="sonne"><stop offset="0%" stop-color="#fff8dc"/>
-        <stop offset="70%" stop-color="#f0dca0"/><stop offset="100%" stop-color="#d9b96a"/></radialGradient>
-    </defs>
-    <circle cx="50" cy="50" r="13" fill="#f0e2b0" opacity=".08"/>
-    <circle cx="50" cy="50" r="6" fill="url(#sonne)"/>`;
+    <circle cx="50" cy="50" r="${sr*2.2}" fill="${stern.farbe}" opacity=".07"/>
+    <image href="${stern.bild}" x="${50-sr}" y="${50-sr}" width="${sr*2}" height="${sr*2}"
+      preserveAspectRatio="xMidYMid meet"/>`;
 
   const n = sys.objekte.length;
   sys.objekte.forEach((objId, i) => {
     const o = spiel.objekte[objId], def = OBJEKTE[o.typ];
-    const bahn = 16 + i*(n > 4 ? 8.6 : 10.5);
+    const bahn = 15 + sr*0.9 + i*(n > 4 ? 8.4 : 10.2);
     // Winkel so verteilen, dass sich benachbarte Objekte nicht überlagern
     const winkel = 0.55 + i*2.399;
     const x = 50 + Math.cos(winkel)*bahn, y = 50 + Math.sin(winkel)*bahn*0.55;
@@ -1282,7 +1513,8 @@ function objektTafel(objId, g, mitReitern){
         <div class="weltdaten">
           <div class="gattung">${def.name}${def.art==="habitat"?" · Habitat":""}</div>
           <div class="name">${obj.name}</div>
-          <div class="lage">${def.beschreibung}</div>
+          <div class="lage">System ${sys.name} · ${(STERNE[sys.stern]||STERNE.gelber_stern).name}
+            · ${def.beschreibung}</div>
         </div>
       </div>
       <div class="messwerte">${felder}</div>
@@ -1290,7 +1522,7 @@ function objektTafel(objId, g, mitReitern){
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:11px">
         <button data-kolonisieren="${objId}" ${kannKolonisieren(objId)?"":"disabled"}>
           ${grenze?(def.art==="planet"?"Planetengrenze erreicht":"Habitatgrenze erreicht")
-            :sys.piraten>0?"Piraten im System"
+            :sys.piraten?"Piraten im System"
             :flotteFrei("siedlerschiff")<1?"Kein Siedlerschiff":"Besiedeln"}</button>
         <button class="still" data-sammeln="${objId}" ${flotteFrei("frachter")<1?"disabled":""}>
           ${flotteFrei("frachter")<1?"Keine Frachter":`Sammeln mit ${flotteFrei("frachter")} Frachtern`}</button>
@@ -1318,7 +1550,8 @@ function objektTafel(objId, g, mitReitern){
       <div class="weltdaten">
         <div class="gattung">${def.name}${def.art==="habitat"?" · Habitat":""}</div>
         <div class="name">${obj.name}</div>
-        <div class="lage">System ${sys.name} · ${def.beschreibung}</div>
+        <div class="lage">System ${sys.name} · ${(STERNE[sys.stern]||STERNE.gelber_stern).name}
+          · ${def.beschreibung}</div>
       </div>
     </div>
     <div class="messwerte">
@@ -1473,10 +1706,53 @@ function seiteFlotte(g){
     for(const b of spiel.berichte.slice(0,3)){
       const l = b.ladung ? Object.keys(b.ladung).filter(r=>b.ladung[r]>0)
         .map(r=>`${z0(b.ladung[r])} ${RES_NAMEN[r]}`).join(" · ") : "";
-      h += `<div class="meldung ${b.text.startsWith("Niederlage")?"rot":"gut"}">
-        ${b.text}${l?` Ladung: ${l}`:""}</div>`;
+      const ton = b.text.startsWith("Niederlage") ? "rot"
+                : b.text.startsWith("Unentschieden") ? "" : "gut";
+      h += `<div class="meldung ${ton}">${b.text}${l?` Beute: ${l}`:""}</div>`;
+
+      // Gefechtsverlauf Runde für Runde
+      if(b.runden && b.runden.length){
+        h += `<div class="flaeche" style="margin-top:6px;padding:10px 13px">`;
+        for(const r of b.runden){
+          const meine = Object.keys(r.eigenVerlust).length
+            ? Object.keys(r.eigenVerlust).map(t=>`${r.eigenVerlust[t]} ${SCHIFFE[t].name}`).join(", ")
+            : "keine";
+          const seine = Object.keys(r.feindVerlust).length
+            ? Object.keys(r.feindVerlust).map(t=>`${r.feindVerlust[t]} ${SCHIFFE[t].name}`).join(", ")
+            : "keine";
+          h += `<div class="erlaeuterung" style="display:flex;gap:10px;flex-wrap:wrap;
+                  padding:3px 0;border-bottom:1px solid var(--kante)">
+            <span class="zahl" style="color:var(--matt);min-width:52px">Runde ${r.nummer}</span>
+            <span style="flex:1 1 140px">Eigene Verluste: ${meine}</span>
+            <span style="flex:1 1 140px;color:var(--signal)">Gegner: ${seine}</span>
+            <span class="zahl" style="color:var(--schwach)">${r.eigenRest} : ${r.feindRest}</span>
+          </div>`;
+        }
+        h += `</div>`;
+      }
     }
   }
+
+  // Kontertabelle als Nachschlagewerk
+  const kt = ["jaeger","korvette","kreuzer"];
+  h += `<div class="rubrik"><h2>Wirksamkeit</h2>
+    <span class="zusatz">Zeile greift Spalte an</span></div>
+    <div class="flaeche" style="overflow-x:auto">
+    <table style="border-collapse:collapse;font-size:12.5px;min-width:340px">
+      <tr><td></td>${kt.map(t=>`<td style="padding:4px 9px;color:var(--matt);
+        font-size:11px;text-transform:uppercase;letter-spacing:.1em">${SCHIFFE[t].name}</td>`).join("")}</tr>
+      ${kt.map(a=>`<tr>
+        <td style="padding:4px 9px;color:var(--matt);font-size:11px;text-transform:uppercase;
+            letter-spacing:.1em">${SCHIFFE[a].name}</td>
+        ${kt.map(v=>{
+          const w = KONTER[a][v];
+          const farbe = w > 1.2 ? "var(--signal)" : w < 0.8 ? "var(--alarm)" : "var(--matt)";
+          return `<td class="zahl" style="padding:4px 9px;color:${farbe}">×${w.toFixed(1)}</td>`;
+        }).join("")}</tr>`).join("")}
+    </table>
+    <div class="erlaeuterung" style="margin-top:8px">Jäger sind zu wendig für schwere Geschütze und
+      reissen Kreuzer auf. Korvetten fangen Jäger ab. Kreuzer zermalmen Korvetten.
+      Es zählt also die Mischung, nicht die Menge.</div></div>`;
 
   h += `<div class="rubrik"><h2>Schiffe bauen</h2>
     <span class="zusatz">Es entsteht immer nur eins auf einmal</span></div>`;
@@ -1566,7 +1842,7 @@ document.addEventListener("click", e => {
 });
 document.getElementById("reset").addEventListener("click", () => {
   if(confirm("Spielstand wirklich löschen? Die Galaxie wird neu erzeugt.")){
-    localStorage.removeItem("aussenposten7");
+    localStorage.removeItem("aussenposten8");
     spiel = neuesSpiel();
     zeichnen();
   }
