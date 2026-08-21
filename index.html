@@ -262,7 +262,7 @@ const BILDER = {
   eis:              "bilder/eis.webp",
   gasriese:         "bilder/gasriese.webp",
   wasserstoffwolke: "",
-  erzguertel:       "",
+  erzguertel:       "bilder/erzguertel.webp",
   photonenwolke:    "",
   methanwolke:      "",
   antike:           "",
@@ -1189,24 +1189,58 @@ function systemKarte(sys){
       <button data-angriff="${sys.id}" ${eigen<=0?"disabled":""} style="margin-top:9px">
         ${eigen<=0?"Keine Flotte":"Gesamte Flotte entsenden"}</button></div>`;
   }
-  let inhalt = `<circle cx="50" cy="50" r="11" fill="#f0e2b0" opacity=".1"/>
-                <circle cx="50" cy="50" r="6" fill="#f5e9c4"/>`;
+  let inhalt = `
+    <defs>
+      <radialGradient id="sonne"><stop offset="0%" stop-color="#fff8dc"/>
+        <stop offset="70%" stop-color="#f0dca0"/><stop offset="100%" stop-color="#d9b96a"/></radialGradient>
+    </defs>
+    <circle cx="50" cy="50" r="13" fill="#f0e2b0" opacity=".08"/>
+    <circle cx="50" cy="50" r="6" fill="url(#sonne)"/>`;
+
+  const n = sys.objekte.length;
   sys.objekte.forEach((objId, i) => {
     const o = spiel.objekte[objId], def = OBJEKTE[o.typ];
-    const bahn = 17 + i*11, winkel = i*2.3 + 0.7;
+    const bahn = 16 + i*(n > 4 ? 8.6 : 10.5);
+    // Winkel so verteilen, dass sich benachbarte Objekte nicht überlagern
+    const winkel = 0.55 + i*2.399;
     const x = 50 + Math.cos(winkel)*bahn, y = 50 + Math.sin(winkel)*bahn*0.55;
     const kolonie = !!spiel.kolonien[objId];
+    const gr = def.art === "planet" ? 4.0 : 3.2;     // Radius der Darstellung
+    const bild = BILDER[o.typ];
+
+    // Beschriftung nach unten, ausser das Objekt liegt am unteren Rand
+    const untenFrei = y < 66;
+    const ty = untenFrei ? y + gr + 3.6 : y - gr - 4.4;
+
     inhalt += `<ellipse cx="50" cy="50" rx="${bahn}" ry="${bahn*0.55}" fill="none"
-                stroke="var(--kante)" stroke-width="0.22" opacity=".7"/>
+                stroke="var(--kante)" stroke-width="0.2" opacity=".55"/>
       <g class="punkt" data-objekt="${objId}">
-        ${spiel.auswahl===objId?`<circle cx="${x}" cy="${y}" r="6.4" fill="none" stroke="var(--bernstein)" stroke-width="0.45"/>`:""}
-        ${kolonie?`<circle cx="${x}" cy="${y}" r="4.9" fill="none" stroke="var(--signal)" stroke-width="0.55"/>`:""}
-        <circle cx="${x}" cy="${y}" r="${def.art==="planet"?3.3:2.4}" fill="${def.farbe}"
-                ${def.art==="habitat"?'stroke="var(--text)" stroke-width="0.28" stroke-dasharray="1 0.9"':""}/>
-        <text x="${x}" y="${y+7.2}" text-anchor="middle" font-size="2.9" font-weight="600" fill="var(--text)">${o.name}</text>
-        <text x="${x}" y="${y+10.6}" text-anchor="middle" font-size="2.4" fill="var(--matt)">${def.name}</text>
+        ${spiel.auswahl===objId?`<circle cx="${x}" cy="${y}" r="${gr+2.4}" fill="none"
+            stroke="var(--bernstein)" stroke-width="0.45"/>`:""}
+        ${kolonie?`<circle cx="${x}" cy="${y}" r="${gr+1.3}" fill="none"
+            stroke="var(--signal)" stroke-width="0.5"/>`:""}`;
+
+    if(bild){
+      // Eigenes Bild als Scheibe einsetzen
+      inhalt += `<image href="${bild}" x="${x-gr}" y="${y-gr}"
+          width="${gr*2}" height="${gr*2}" preserveAspectRatio="xMidYMid meet"/>`;
+    }else{
+      // Ohne Bild: farbiger Punkt wie bisher
+      inhalt += `<circle cx="${x}" cy="${y}" r="${gr*0.8}" fill="${def.farbe}"
+          ${def.art==="habitat"?'stroke="var(--text)" stroke-width="0.28" stroke-dasharray="1 0.9"':""}/>`;
+    }
+
+    // Schrift mit dunklem Rand, damit sie über allem lesbar bleibt
+    const zeile2 = untenFrei ? ty + 3.4 : ty - 3.4;
+    inhalt += `<text x="${x}" y="${untenFrei ? ty : zeile2}" text-anchor="middle" font-size="2.9"
+        font-weight="600" fill="var(--text)" stroke="#060b13" stroke-width="0.9"
+        paint-order="stroke" stroke-linejoin="round">${o.name}</text>
+      <text x="${x}" y="${untenFrei ? zeile2 : ty}" text-anchor="middle" font-size="2.4"
+        fill="var(--matt)" stroke="#060b13" stroke-width="0.8"
+        paint-order="stroke" stroke-linejoin="round">${def.name}</text>
       </g>`;
   });
+
   return kopf + `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">${inhalt}</svg>`;
 }
 
