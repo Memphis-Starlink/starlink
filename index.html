@@ -20,13 +20,8 @@
   html{-webkit-text-size-adjust:100%}
   body{
     margin:0;
-    background:
-      /* Galaxienebel — mehrere weiche Farbwolken übereinander */
-      radial-gradient(1000px 620px at 18% 8%,  rgba(64,116,178,.30) 0%, transparent 62%),
-      radial-gradient(760px 520px at 84% 22%, rgba(150,80,190,.24) 0%, transparent 60%),
-      radial-gradient(900px 700px at 62% 78%, rgba(38,150,160,.18) 0%, transparent 64%),
-      radial-gradient(520px 420px at 8% 72%,  rgba(200,110,70,.13) 0%, transparent 62%),
-      linear-gradient(178deg, #070d18 0%, #0a1120 45%, #060a13 100%);
+    /* Reines Schwarz — freigestellte Objekte fügen sich nahtlos ein */
+    background: #000005;
     background-attachment:fixed;
     color:var(--text);
     font-family:"Segoe UI",system-ui,-apple-system,sans-serif;
@@ -44,15 +39,12 @@
   #sterne.fern{opacity:.55}
 
   /* Planetenbilder bekommen einen leisen Lichtsaum statt eines Kastens */
-  .weltbild{
-    object-fit:contain;
-    filter:drop-shadow(0 0 14px rgba(120,180,230,.16)) drop-shadow(0 3px 9px rgba(0,0,0,.6));
-  }
+  .weltbild{ object-fit:contain; }
 
   /* ---------- Kopfleiste, klebt beim Scrollen ---------- */
   .kopf{
     position:sticky; top:0; z-index:30;
-    background:rgba(10,17,28,.93);
+    background:rgba(4,8,16,.94);
     backdrop-filter:blur(9px);
     border-bottom:1px solid var(--kante);
   }
@@ -109,8 +101,9 @@
   .rubrik .zusatz{font-size:12px;color:var(--schwach)}
 
   /* ---------- Flächen ---------- */
-  .flaeche{background:rgba(14,24,38,.82);border:1px solid var(--kante);border-radius:9px;padding:14px 15px}
-  .karte{background:rgba(10,17,28,.62);border:1px solid var(--kante);border-radius:9px;padding:5px;
+  .flaeche{background:var(--konsole);border:1px solid var(--kante);border-radius:9px;padding:14px 15px}
+  /* Die Karte bleibt schwarz wie der Weltraum dahinter */
+  .karte{background:#000005;border:1px solid var(--kante);border-radius:9px;padding:5px;
          overflow:hidden;position:relative}
   .karte svg{display:block;width:100%;height:auto;touch-action:manipulation}
   .punkt{cursor:pointer}
@@ -1869,8 +1862,8 @@ function sternenFeld(anzahl, kachel, maxRadius, deckkraft){
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${kachel}" height="${kachel}">${punkte}</svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 }
-document.getElementById("sterne").style.backgroundImage  = sternenFeld(190, 420, 0.75, 0.45);
-document.getElementById("sterne2").style.backgroundImage = sternenFeld(70, 300, 1.15, 0.65);
+document.getElementById("sterne").style.backgroundImage  = sternenFeld(260, 420, 0.65, 0.40);
+document.getElementById("sterne2").style.backgroundImage = sternenFeld(85, 300, 1.05, 0.60);
 
 fortschreiben(); zeichnen();
 setInterval(()=>{ fortschreiben(); zeichnen(); }, 1000);
