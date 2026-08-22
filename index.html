@@ -272,7 +272,7 @@ const BILDER = {
   erzguertel:       "bilder/erzguertel.webp",
   photonenwolke:    "bilder/photonenwolke.webp",
   methanwolke:      "bilder/methanwolke.webp",
-  antike:           "",
+  antike:           "bilder/antike.webp",
 };
 
 /* ============================================================
@@ -308,6 +308,155 @@ const STERNE = {
                      farbe:"#c9a3f0", groesse:0.55,
                      beschreibung:"Überrest einer Sternexplosion. Unfassbar dicht.", wirkung:{} },
 };
+
+/* ============================================================
+   0c2. NEUTRALE PARTEIEN
+   Drei Handelspartner mit eigenem Sortiment. Sie greifen nicht an
+   und lassen sich nicht erobern — sie handeln nur.
+   Drei Bremsen halten den Handel im Rahmen:
+     1. Nur wenige Angebote gleichzeitig, die ablaufen
+     2. Wechselkurse sind bewusst ungünstig
+     3. Bessere Kurse gibt es erst mit Ruf, und Ruf braucht Umsatz
+   ============================================================ */
+const ANGEBOT_DAUER = 45 * 60;        // Sekunden, bis ein Sortiment wechselt
+const ANGEBOTE_JE_WELT = 3;           // Angebote je bewohntem Planeten
+const BESIEDELT_ANTEIL = 0.20;        // Anteil der Objekte in fremder Hand
+
+const PARTEIEN = {
+  konzern: {
+    name:"Bergbaukonsortium Vharr", kurz:"Konsortium", farbe:"#d97f4f",
+    beschreibung:"Ein zäher Rohstoffhändler. Kauft, was im Überfluss da ist, und verkauft, was knapp ist.",
+    // Was sie hergeben und was sie dafür wollen
+    verkauft:["kupfer","erz","silikat"],
+    verlangt:["wasserstoff","kohlenstoff","energiezellen","nahrung"],
+    grundkurs:0.55,                   // je niedriger, desto ungünstiger für dich
+  },
+  orden: {
+    name:"Orden der Stillen Sphäre", kurz:"Orden", farbe:"#b48fe8",
+    beschreibung:"Gelehrte auf Wanderschaft. Sie tauschen Wissen gegen Material für ihre Arbeit.",
+    verkauft:["forschung"],
+    verlangt:["legierung","kupfer","silikat","kohlenstoff","energiezellen"],
+    grundkurs:0.22,
+  },
+  schmuggler: {
+    name:"Freihändler Kesh", kurz:"Freihändler", farbe:"#e8a33c",
+    beschreibung:"Wechselndes Sortiment, keine Fragen, gute Kurse — solange die Ware ankommt.",
+    verkauft:["legierung","kupfer","wasserstoff","kohlenstoff","erz","silikat"],
+    verlangt:["energiezellen","erz","silikat","nahrung","legierung"],
+    grundkurs:0.85,
+    risiko:0.18,                      // Anteil der Geschäfte, die schiefgehen
+  },
+};
+
+/* Beziehung: läuft von −100 bis +100 und beginnt bei 0.
+   Sie bestimmt die Handelskurse und später, ob eine Partei
+   ihre Welten gegen dich verteidigt. */
+const BEZIEHUNG_MIN = -100, BEZIEHUNG_MAX = 100;
+const DIPLO_STUFEN = [
+  { ab:-100, name:"Verfeindet",  bonus:0.60, farbe:"var(--alarm)" },
+  { ab:-60,  name:"Feindselig",  bonus:0.75, farbe:"var(--alarm)" },
+  { ab:-20,  name:"Misstrauisch",bonus:0.90, farbe:"var(--bernstein)" },
+  { ab:0,    name:"Neutral",     bonus:1.00, farbe:"var(--matt)" },
+  { ab:25,   name:"Wohlgesonnen",bonus:1.15, farbe:"var(--text)" },
+  { ab:55,   name:"Freundlich",  bonus:1.32, farbe:"var(--signal)" },
+  { ab:80,   name:"Verbündet",   bonus:1.55, farbe:"var(--signal)" },
+];
+
+/* ============================================================
+   0d. AUFGABEN UND RÄNGE
+   Belohnt wird, was man erreicht — nicht, wie oft man vorbeischaut.
+   Kein Ablaufdatum, kein Zurücksetzen. Die Belohnungen sind bewusst
+   rein kosmetisch (Titel), damit später eine bezahlte zweite Spur
+   ergänzt werden kann, ohne das Spielgleichgewicht zu berühren.
+   ============================================================ */
+const AUFGABEN = {
+  // --- Aufbau ---
+  erste_kolonie:   { name:"Fuss gefasst", gruppe:"Aufbau", punkte:20,
+                     beschreibung:"Besiedle eine zweite Welt.",
+                     ziel:2, pruef:()=>Object.keys(spiel.kolonien).length },
+  fuenf_kolonien:  { name:"Junges Reich", gruppe:"Aufbau", punkte:60,
+                     beschreibung:"Halte fünf Kolonien gleichzeitig.",
+                     ziel:5, pruef:()=>Object.keys(spiel.kolonien).length },
+  erstes_habitat:  { name:"Leben im Vakuum", gruppe:"Aufbau", punkte:40,
+                     beschreibung:"Besiedle ein Habitatobjekt.",
+                     ziel:1, pruef:()=>{ let n=0; for(const id in spiel.kolonien)
+                       if(OBJEKTE[spiel.objekte[id].typ].art==="habitat") n++; return n; } },
+  gasriese:        { name:"Wolkenschöpfer", gruppe:"Aufbau", punkte:35,
+                     beschreibung:"Besiedle einen Gasriesen.",
+                     ziel:1, pruef:()=>{ let n=0; for(const id in spiel.kolonien)
+                       if(spiel.objekte[id].typ==="gasriese") n++; return n; } },
+  volle_welt:      { name:"Kein Fleck frei", gruppe:"Aufbau", punkte:80,
+                     beschreibung:"Bebaue auf einer Welt jedes verfügbare Distriktfeld.",
+                     ziel:1, pruef:()=>{
+                       let n=0;
+                       for(const id in spiel.kolonien){
+                         const k=spiel.kolonien[id], o=spiel.objekte[id];
+                         const felder=Object.keys(o.felder);
+                         if(felder.length && felder.every(d=>k.distrikte[d] >= o.felder[d])) n++;
+                       }
+                       return n; } },
+  bevoelkerung:    { name:"Volle Quartiere", gruppe:"Aufbau", punkte:50,
+                     beschreibung:"Bringe 60 Bewohner in deinem Reich unter.",
+                     ziel:60, pruef:()=>{ let n=0; for(const id in spiel.kolonien)
+                       n += Math.floor(spiel.kolonien[id].bev); return n; } },
+
+  // --- Wirtschaft ---
+  lager_voll:      { name:"Randvoll", gruppe:"Wirtschaft", punkte:40,
+                     beschreibung:"Lagere 20.000 Erz.",
+                     ziel:20000, pruef:()=>spiel.res.erz },
+  legierung:       { name:"Schwerindustrie", gruppe:"Wirtschaft", punkte:45,
+                     beschreibung:"Lagere 5.000 Legierung.",
+                     ziel:5000, pruef:()=>spiel.res.legierung },
+  giesserei:       { name:"Hochofen", gruppe:"Wirtschaft", punkte:55,
+                     beschreibung:"Bringe eine Legierungsgießerei auf Stufe 5.",
+                     ziel:5, pruef:()=>{ let m=0; for(const id in spiel.kolonien)
+                       m=Math.max(m, spiel.kolonien[id].gebaeude.giesserei||0); return m; } },
+  forschung_start: { name:"Erkenntnis", gruppe:"Wirtschaft", punkte:30,
+                     beschreibung:"Schliesse zwei Technologien ab.",
+                     ziel:2, pruef:()=>Object.values(spiel.techs||{}).reduce((a,b)=>a+b,0) },
+
+  // --- Erkundung ---
+  erkunder:        { name:"Kartograf", gruppe:"Erkundung", punkte:35,
+                     beschreibung:"Erkunde fünf Sternsysteme.",
+                     ziel:5, pruef:()=>spiel.systeme.filter(x=>x.erkundet).length },
+  alles_erkundet:  { name:"Nichts mehr unbekannt", gruppe:"Erkundung", punkte:90,
+                     beschreibung:"Erkunde jedes System der Galaxie.",
+                     ziel:9, pruef:()=>spiel.systeme.filter(x=>x.erkundet).length },
+  frachtfahrt:     { name:"Handelsroute", gruppe:"Erkundung", punkte:30,
+                     beschreibung:"Bringe drei Sammelflüge heim.",
+                     ziel:3, pruef:()=>(spiel.berichte||[]).filter(b=>b.art==="sammeln").length },
+
+  // --- Militär ---
+  erster_sieg:     { name:"Feuertaufe", gruppe:"Militär", punkte:40,
+                     beschreibung:"Zerschlage ein Piratenlager.",
+                     ziel:1, pruef:()=>(spiel.berichte||[])
+                       .filter(b=>b.text?.startsWith("Sieg")).length },
+  drei_siege:      { name:"Ordnungsmacht", gruppe:"Militär", punkte:75,
+                     beschreibung:"Zerschlage drei Piratenlager.",
+                     ziel:3, pruef:()=>(spiel.berichte||[])
+                       .filter(b=>b.text?.startsWith("Sieg")).length },
+  kriegsflotte:    { name:"Stehende Flotte", gruppe:"Militär", punkte:50,
+                     beschreibung:"Halte 25 Kampfschiffe gleichzeitig bereit.",
+                     ziel:25, pruef:()=>["jaeger","korvette","kreuzer"]
+                       .reduce((a,t)=>a+(spiel.schiffe[t]||0),0) },
+  kreuzer_flotte:  { name:"Schwere Linie", gruppe:"Militär", punkte:70,
+                     beschreibung:"Halte acht Kreuzer bereit.",
+                     ziel:8, pruef:()=>spiel.schiffe.kreuzer||0 },
+  galaxie_frei:    { name:"Befriedet", gruppe:"Militär", punkte:120,
+                     beschreibung:"Räume alle Piratenlager der Galaxie.",
+                     ziel:1, pruef:()=>spiel.systeme.every(x=>!x.piraten) ? 1 : 0 },
+};
+
+// Ränge: je Stufe ein Titel. Kein Zurücksetzen, kein Zeitdruck.
+const RAENGE = [
+  { punkte:0,   titel:"Siedler" },
+  { punkte:60,  titel:"Statthalter" },
+  { punkte:150, titel:"Präfekt" },
+  { punkte:280, titel:"Konsul" },
+  { punkte:450, titel:"Prokonsul" },
+  { punkte:650, titel:"Archon" },
+  { punkte:900, titel:"Hoher Archon" },
+];
 
 /* ============================================================
    1. RESSOURCEN
@@ -392,7 +541,7 @@ const PIRATEN_ARTEN = {
 
 const SCHIFFE = {
   sonde:        { name:"Sonde", rolle:"Erkundung", bauzeit:40,
-                  beschreibung:"Deckt ein unerkundetes System auf. Wird dabei verbraucht.",
+                  beschreibung:"Deckt ein unerkundetes System auf und kehrt danach heim.",
                   kosten:{energiezellen:200, erz:100, silikat:80, legierung:20} },
   siedlerschiff:{ name:"Siedlerschiff", rolle:"Erweiterung", bauzeit:180,
                   beschreibung:"Gründet eine Kolonie. Wird dabei verbraucht.",
@@ -508,7 +657,13 @@ function karteErzeugen(){
         const [min,max] = def.felder[d];
         felder[d] = zwischen(min,max);
       }
-      objekte[objId] = { id:objId, systemId:i, typ, name:`${name} ${ROEM[j]}`, felder };
+      // Ein Fünftel aller Objekte ist bereits bewohnt — ausser der Heimatwelt
+      let fraktion = null;
+      if(!(i === 0 && j === 0) && rnd() < BESIEDELT_ANTEIL){
+        const pl = Object.keys(PARTEIEN);
+        fraktion = pl[Math.floor(rnd()*pl.length)];
+      }
+      objekte[objId] = { id:objId, systemId:i, typ, name:`${name} ${ROEM[j]}`, felder, fraktion };
       sys.objekte.push(objId);
       objId++;
     }
@@ -586,9 +741,18 @@ function laden(){
       if(!k.zuweisung) k.zuweisung = {};
     }
     if(!s.techs) s.techs = {};
+    if(!s.handel) s.handel = {};
+    if(!s.diplomatie) s.diplomatie = {};
+    for(const oid in s.objekte)
+      if(s.objekte[oid].fraktion === undefined) s.objekte[oid].fraktion = null;
     if(!s.schiffe) s.schiffe = {};
     for(const t in SCHIFFE) if(!(t in s.schiffe)) s.schiffe[t] = 0;
     if(!Array.isArray(s.missionen)) s.missionen = [];
+    for(const m of s.missionen){          // alte Spielstände ergänzen
+      if(m.nachSys == null) m.nachSys = m.art === "sammeln" ? s.objekte[m.ziel].systemId : m.ziel;
+      if(m.vonSys == null)  m.vonSys = 0;
+      if(m.startAb == null) m.startAb = m.endeAb - m.dauer*1000/TEMPO;
+    }
     if(!("werftauftrag" in s)) s.werftauftrag = null;
     for(const sy of s.systeme){
       if(!sy.stern){
@@ -776,6 +940,7 @@ function fortschreiben(){
           missionHeimkehr(m); spiel.missionen.splice(i,1);
         }else{
           m.phase = "rueck";
+          m.startAb = jetzt;
           m.endeAb = jetzt + m.dauer*1000/TEMPO;
         }
       }else{
@@ -795,6 +960,8 @@ function fortschreiben(){
       spiel.kolonieflug = null;
     }
   }
+  aufgabenPruefen();     // nach jedem Zeitschritt neue Erfolge erfassen
+  handelPruefen();       // Sortimente erneuern, wenn sie abgelaufen sind
 }
 // Schrumpft die Bevölkerung, müssen Zuweisungen nachgeben
 function entzieheZuweisung(id){
@@ -804,6 +971,162 @@ function entzieheZuweisung(id){
     const s = Object.keys(k.zuweisung).find(x => k.zuweisung[x] > 0);
     if(!s) break;
     k.zuweisung[s] -= 1; zug -= 1;
+  }
+}
+
+/* ============================================================
+   10z. HANDEL MIT NEUTRALEN PARTEIEN
+   ============================================================ */
+// Grobe Wertigkeit der Ressourcen — bestimmt die Tauschverhältnisse
+const RES_WERT = {
+  energiezellen:1, nahrung:1.2, erz:1.5, silikat:2.2, kohlenstoff:2.6,
+  wasserstoff:2.8, kupfer:5, legierung:9, forschung:14,
+};
+
+function diploStand(partei){
+  const w = Math.max(BEZIEHUNG_MIN, Math.min(BEZIEHUNG_MAX,
+    (spiel.diplomatie && spiel.diplomatie[partei]) || 0));
+  let stufe = DIPLO_STUFEN[0], naechst = null;
+  for(let i=0;i<DIPLO_STUFEN.length;i++){
+    if(w >= DIPLO_STUFEN[i].ab){ stufe = DIPLO_STUFEN[i]; naechst = DIPLO_STUFEN[i+1] || null; }
+  }
+  return { wert:w, stufe, naechst };
+}
+function diploAendern(partei, delta){
+  spiel.diplomatie = spiel.diplomatie || {};
+  const alt = spiel.diplomatie[partei] || 0;
+  spiel.diplomatie[partei] = Math.max(BEZIEHUNG_MIN, Math.min(BEZIEHUNG_MAX, alt + delta));
+}
+
+// Alle Objekte, die einer Partei gehören
+function fremdeWelten(nurErkundet){
+  const out = [];
+  for(const id in spiel.objekte){
+    const o = spiel.objekte[id];
+    if(!o.fraktion) continue;
+    if(nurErkundet && !spiel.systeme[o.systemId].erkundet) continue;
+    out.push(o);
+  }
+  return out;
+}
+
+// Jede bewohnte Welt führt ihr eigenes Sortiment
+function angeboteWuerfeln(objId){
+  const o = spiel.objekte[objId];
+  const d = PARTEIEN[o.fraktion];
+  const bonus = diploStand(o.fraktion).stufe.bonus;
+  const liste = [];
+
+  // Was eine Welt anbietet, hängt auch von ihren eigenen Vorkommen ab
+  const eigene = [];
+  for(const dist in o.felder)
+    for(const r in DISTRIKTE[dist].produziert)
+      if(r !== "forschung" && !eigene.includes(r)) eigene.push(r);
+  const topf = [...d.verkauft, ...eigene.filter(r => Math.random() < 0.5)];
+
+  for(let i=0;i<ANGEBOTE_JE_WELT;i++){
+    const gibt = topf[Math.floor(Math.random()*topf.length)];
+    let will = d.verlangt[Math.floor(Math.random()*d.verlangt.length)];
+    if(will === gibt) will = d.verlangt[(d.verlangt.indexOf(will)+1) % d.verlangt.length];
+
+    const menge = Math.max(1, Math.round((260 / RES_WERT[gibt]) * (0.6 + Math.random()*0.9)));
+    const preis = Math.max(1, Math.round(
+      menge * RES_WERT[gibt] / RES_WERT[will] / (d.grundkurs * bonus)));
+    liste.push({ gibt, menge, will, preis, weg:false });
+  }
+  return liste;
+}
+
+function handelPruefen(){
+  spiel.handel = spiel.handel || {};
+  spiel.diplomatie = spiel.diplomatie || {};
+  for(const pid in PARTEIEN) if(spiel.diplomatie[pid] == null) spiel.diplomatie[pid] = 0;
+
+  const jetzt = Date.now();
+  for(const o of fremdeWelten(false)){
+    const h = spiel.handel[o.id];
+    if(!h || jetzt >= h.bisAb){
+      spiel.handel[o.id] = {
+        angebote: angeboteWuerfeln(o.id),
+        bisAb: jetzt + ANGEBOT_DAUER*1000/TEMPO,
+      };
+    }
+  }
+}
+
+function handeln(objId, index){
+  handelPruefen();
+  const o = spiel.objekte[objId];
+  if(!o || !o.fraktion) return;
+  const d = PARTEIEN[o.fraktion];
+  const h = spiel.handel[objId];
+  const a = h && h.angebote[index];
+  if(!a || a.weg) return;
+  if((spiel.res[a.will] || 0) < a.preis) return;
+
+  // Verfeindete Parteien handeln nicht mehr
+  if(diploStand(o.fraktion).wert <= -60) return;
+
+  spiel.res[a.will] -= a.preis;
+
+  if(d.risiko && Math.random() < d.risiko){
+    a.weg = true;
+    spiel.berichte = spiel.berichte || [];
+    spiel.berichte.unshift({
+      text:`Lieferung ausgeblieben — ${o.name} meldet einen Zwischenfall.`,
+      art:"handel", ziel:o.name, zeit:Date.now(), gelesen:false,
+    });
+    spiel.berichte = spiel.berichte.slice(0,25);
+    speichern(); zeichnen();
+    return;
+  }
+
+  if(a.gibt === "forschung") spiel.forschung += a.menge;
+  else spiel.res[a.gibt] = (spiel.res[a.gibt] || 0) + a.menge;
+
+  // Handel verbessert die Beziehung — mit abnehmender Wirkung nach oben
+  const jetztW = diploStand(o.fraktion).wert;
+  const schritt = jetztW < 40 ? 2 : jetztW < 70 ? 1 : 0.5;
+  diploAendern(o.fraktion, schritt);
+
+  a.weg = true;
+  speichern(); zeichnen();
+}
+
+/* ============================================================
+   10a. AUFGABEN AUSWERTEN
+   ============================================================ */
+function aufgabenStand(){
+  const liste = [];
+  let punkte = 0;
+  for(const id in AUFGABEN){
+    const a = AUFGABEN[id];
+    let wert = 0;
+    try { wert = a.pruef() || 0; } catch(e) { wert = 0; }
+    const erfuellt = wert >= a.ziel;
+    if(erfuellt) punkte += a.punkte;
+    liste.push({ id, ...a, wert: Math.min(wert, a.ziel), erfuellt });
+  }
+  return { liste, punkte };
+}
+
+function rangZu(punkte){
+  let jetzt = RAENGE[0], naechst = null;
+  for(let i = 0; i < RAENGE.length; i++){
+    if(punkte >= RAENGE[i].punkte){ jetzt = RAENGE[i]; naechst = RAENGE[i+1] || null; }
+  }
+  return { jetzt, naechst, stufe: RAENGE.indexOf(jetzt) + 1 };
+}
+
+// Neu erfüllte Aufträge merken, damit der Reiter darauf hinweisen kann
+function aufgabenPruefen(){
+  const st = aufgabenStand();
+  spiel.erledigt = spiel.erledigt || [];
+  for(const a of st.liste){
+    if(a.erfuellt && !spiel.erledigt.includes(a.id)){
+      spiel.erledigt.push(a.id);
+      spiel.neueAufgaben = (spiel.neueAufgaben || 0) + 1;
+    }
   }
 }
 
@@ -836,6 +1159,18 @@ function flugdauer(sysId, faktor){
 }
 function flotteFrei(typ){ return spiel.schiffe[typ] || 0; }
 
+// Von welchem eigenen System startet ein Flug? Vom nächstgelegenen.
+function startSystem(zielSysId){
+  const ziel = spiel.systeme[zielSysId];
+  let best = 0, bestD = Infinity;
+  for(const id in spiel.kolonien){
+    const sid = spiel.objekte[id].systemId;
+    const d = entfernungSys(ziel, spiel.systeme[sid]);
+    if(d < bestD){ bestD = d; best = sid; }
+  }
+  return best;
+}
+
 function starteMission(art, ziel, schiffe){
   for(const t in schiffe) if(flotteFrei(t) < schiffe[t]) return false;
   for(const t in schiffe) spiel.schiffe[t] -= schiffe[t];
@@ -844,6 +1179,9 @@ function starteMission(art, ziel, schiffe){
   spiel.missionen.push({
     id: Date.now()+Math.floor(Math.random()*1000),
     art, ziel, schiffe, dauer, phase:"hin",
+    vonSys: startSystem(sysId), nachSys: sysId,
+    ausgesandt: { ...schiffe },
+    startAb: Date.now(),
     endeAb: Date.now()+dauer*1000/TEMPO, bericht:null, ladung:null
   });
   speichern(); zeichnen();
@@ -973,8 +1311,8 @@ function missionAuswerten(m){
   const sys = spiel.systeme[m.art === "sammeln" ? spiel.objekte[m.ziel].systemId : m.ziel];
   if(m.art === "erkunden"){
     sys.erkundet = true;
-    m.schiffe = {};                       // Sonde bleibt vor Ort
-    m.bericht = `System ${sys.name} erkundet.`;
+    m.bericht = `System ${sys.name} erkundet — ${sys.objekte.length} Objekte erfasst.`;
+    // Die Sonde bleibt erhalten und tritt den Rückflug an
   }
   else if(m.art === "besiedeln"){
     spiel.kolonien[m.ziel] = neueKolonie(m.ziel);
@@ -998,9 +1336,21 @@ function missionHeimkehr(m){
   for(const t in m.schiffe) spiel.schiffe[t] = (spiel.schiffe[t]||0) + m.schiffe[t];
   if(m.ladung)
     for(const r in m.ladung) spiel.res[r] = (spiel.res[r]||0) + m.ladung[r];
+
   spiel.berichte = spiel.berichte || [];
-  spiel.berichte.unshift({ text:m.bericht, ladung:m.ladung, runden:m.runden||null, zeit:Date.now() });
-  spiel.berichte = spiel.berichte.slice(0,5);
+  spiel.berichte.unshift({
+    text: m.bericht,
+    art: m.art,
+    ziel: (m.art === "sammeln" || m.art === "besiedeln")
+          ? (spiel.objekte[m.ziel]?.name || "?")
+          : (spiel.systeme[m.nachSys]?.name || "?"),
+    ausgesandt: m.ausgesandt || m.schiffe,
+    heimgekehrt: { ...m.schiffe },
+    ladung: m.ladung,
+    runden: m.runden || null,
+    zeit: Date.now(),
+  });
+  spiel.berichte = spiel.berichte.slice(0, 25);
 }
 
 /* ============================================================
@@ -1055,6 +1405,7 @@ function kolonieKosten(objId){
 function kannKolonisieren(objId){
   if(spiel.kolonien[objId]) return false;
   const obj = spiel.objekte[objId];
+  if(obj.fraktion) return false;              // fremde Welt, nicht besiedelbar
   if(spiel.systeme[obj.systemId].piraten) return false;         // erst aufräumen
   if(flotteFrei("siedlerschiff") < 1) return false;
   const art = OBJEKTE[obj.typ].art, z = zaehleKolonien();
@@ -1274,11 +1625,16 @@ function zeichnen(){
   const laufend = spiel.missionen.length + (spiel.werftauftrag?1:0);
   const bauend = Object.keys(spiel.kolonien).filter(id => spiel.kolonien[id].bau).length;
   const forschbar = Object.keys(TECHS).filter(t => techVerfuegbar(t) && spiel.forschung >= techKosten(t)).length;
+  const neueBerichte = (spiel.berichte||[]).filter(b => !b.gelesen).length;
   const reiter = [
     ["karte","Karte",""],
     ["kolonie","Kolonien", bauend?`<span class="zeiger">${bauend}</span>`:""],
-    ["flotte","Flotte", laufend?`<span class="zeiger">${laufend}</span>`:""],
+    ["werft","Werft", spiel.werftauftrag?`<span class="zeiger">1</span>`:""],
+    ["flotte","Flotte", spiel.missionen.length?`<span class="zeiger">${spiel.missionen.length}</span>`
+      : neueBerichte?`<span class="zeiger warn">${neueBerichte}</span>`:""],
     ["forschung","Forschung", forschbar?`<span class="zeiger warn">${forschbar}</span>`:""],
+    ["diplomatie","Diplomatie",""],
+    ["auftrag","Aufträge", spiel.neueAufgaben?`<span class="zeiger warn">${spiel.neueAufgaben}</span>`:""],
   ];
   document.getElementById("nav").innerHTML = reiter.map(([k,n,zg]) =>
     `<button data-tab="${k}" class="${spiel.tab===k?"an":""}">${n}${zg}</button>`).join("");
@@ -1287,7 +1643,10 @@ function zeichnen(){
   const buehne = document.getElementById("buehne");
   if(spiel.tab === "karte")          buehne.innerHTML = seiteKarte(g);
   else if(spiel.tab === "kolonie")   buehne.innerHTML = seiteKolonie(g);
+  else if(spiel.tab === "werft")     buehne.innerHTML = seiteWerft(g);
   else if(spiel.tab === "flotte")    buehne.innerHTML = seiteFlotte(g);
+  else if(spiel.tab === "diplomatie") buehne.innerHTML = seiteDiplomatie(g);
+  else if(spiel.tab === "auftrag")   buehne.innerHTML = seiteAuftraege(g);
   else                               buehne.innerHTML = seiteForschung(g);
 }
 
@@ -1306,12 +1665,88 @@ function seiteKarte(g){
 
   if(spiel.ansicht === "objekt")
     h += `<div style="margin-top:12px">${objektTafel(spiel.auswahl, g)}</div>`;
-  else if(spiel.ansicht === "galaxie")
+  else if(spiel.ansicht === "galaxie"){
+    if(spiel.missionen.length){
+      h += `<div class="rubrik"><h2>Unterwegs</h2>
+        <span class="zusatz">${spiel.missionen.length} Flüge</span></div>`;
+      for(const m of spiel.missionen){
+        const sym = FLUG_SYMBOL[m.art] || FLUG_SYMBOL.erkunden;
+        const rest = (m.endeAb - Date.now())/1000;
+        const ziel = (m.art === "sammeln" || m.art === "besiedeln")
+          ? spiel.objekte[m.ziel].name : spiel.systeme[m.nachSys].name;
+        const flotte = Object.keys(m.schiffe).filter(t=>m.schiffe[t])
+          .map(t=>`${m.schiffe[t]} ${SCHIFFE[t].name}`).join(", ") || "—";
+        h += `<div class="posten-zeile">
+          <svg width="26" height="26" viewBox="-6 -6 12 12" style="flex:none">
+            ${sym.form(0,0,0)}</svg>
+          <div class="rumpf">
+            <div class="bezeichnung">${sym.name}
+              <span class="stufe">${m.phase==="rueck"?"Rückflug":"nach "+ziel}</span></div>
+            <div class="erlaeuterung">${flotte}</div></div>
+          <div class="zahl" style="color:${sym.farbe}">${zeitText(rest*TEMPO)}</div></div>`;
+      }
+    }
     h += `<div class="rubrik"><h2>Ablesen</h2><span class="zusatz">Ein System anklicken zum Öffnen</span></div>
       <div class="flaeche"><div class="erlaeuterung">
-      Helle Punkte sind erkundete Systeme, dunkle unerkundet. Ein Ring markiert eigene Kolonien,
-      rote Beschriftung Piraten. Sonden bauen Sie in der Werft.</div></div>`;
+      Erkundete Systeme zeigen ihren Stern, unerkundete einen grauen Punkt. Ein Ring markiert eigene
+      Kolonien, rote Beschriftung Piraten. Gestrichelte Linien sind Flugbahnen unterwegs befindlicher
+      Flotten.</div></div>`;
+  }
   return h;
+}
+
+/* ------------------------------------------------------------
+   Symbole für unterwegs befindliche Flotten.
+   Jede Missionsart bekommt eine eigene Form, damit man sie auch
+   ohne Beschriftung auseinanderhält.
+   ------------------------------------------------------------ */
+const FLUG_SYMBOL = {
+  erkunden:  { farbe:"var(--signal)",     name:"Sonde",
+    form:(x,y,w)=>`<g transform="translate(${x} ${y}) rotate(${w})">
+      <circle cx="0" cy="0" r="1.5" fill="none" stroke="var(--signal)" stroke-width="0.5"/>
+      <path d="M-2.6 0 L2.6 0 M0 -2.6 L0 2.6" stroke="var(--signal)" stroke-width="0.4"/></g>` },
+  besiedeln: { farbe:"var(--nahrung)",    name:"Siedlerschiff",
+    form:(x,y,w)=>`<g transform="translate(${x} ${y}) rotate(${w})">
+      <path d="M3 0 L-2 2 L-1 0 L-2 -2 Z" fill="var(--nahrung)"/></g>` },
+  sammeln:   { farbe:"var(--kupfer)",     name:"Frachter",
+    form:(x,y,w)=>`<g transform="translate(${x} ${y}) rotate(${w})">
+      <rect x="-2.2" y="-1.4" width="4.4" height="2.8" rx="0.5" fill="var(--kupfer)"/>
+      <path d="M2.2 0 L3.4 0" stroke="var(--kupfer)" stroke-width="0.6"/></g>` },
+  angriff:   { farbe:"var(--alarm)",      name:"Kampfflotte",
+    form:(x,y,w)=>`<g transform="translate(${x} ${y}) rotate(${w})">
+      <path d="M3.4 0 L-2.4 2.4 L-1 0 L-2.4 -2.4 Z" fill="var(--alarm)"/>
+      <path d="M-1 0 L-3.4 0" stroke="var(--alarm)" stroke-width="0.5"/></g>` },
+};
+
+// Zeichnet alle laufenden Flüge zwischen den Systemen
+function flugbahnen(){
+  let out = "";
+  const jetzt = Date.now();
+  for(const m of spiel.missionen){
+    const a = spiel.systeme[m.vonSys], b = spiel.systeme[m.nachSys];
+    if(!a || !b || a.id === b.id) continue;
+    const sym = FLUG_SYMBOL[m.art] || FLUG_SYMBOL.erkunden;
+
+    // Anteil des zurückgelegten Weges
+    const gesamt = m.endeAb - m.startAb;
+    let t = gesamt > 0 ? (jetzt - m.startAb) / gesamt : 1;
+    t = Math.max(0, Math.min(1, t));
+    // Auf dem Rückflug läuft die Bewegung andersherum
+    const von = m.phase === "rueck" ? b : a;
+    const nach = m.phase === "rueck" ? a : b;
+
+    const x = von.x + (nach.x - von.x) * t;
+    const y = von.y + (nach.y - von.y) * t;
+    const winkel = Math.atan2(nach.y - von.y, nach.x - von.x) * 180 / Math.PI;
+
+    out += `<line x1="${von.x}" y1="${von.y}" x2="${nach.x}" y2="${nach.y}"
+        stroke="${sym.farbe}" stroke-width="0.35" stroke-dasharray="2 2" opacity=".45"/>
+      <line x1="${von.x}" y1="${von.y}" x2="${x}" y2="${y}"
+        stroke="${sym.farbe}" stroke-width="0.45" opacity=".8"/>
+      <circle cx="${x}" cy="${y}" r="3.4" fill="${sym.farbe}" opacity=".14"/>
+      ${sym.form(x, y, winkel)}`;
+  }
+  return out;
 }
 
 function galaxieKarte(){
@@ -1342,7 +1777,8 @@ function galaxieKarte(){
           : s.objekte.length+" Objekte"+(anzKol?" · "+anzKol+" besiedelt":"")}</text>`:""}
     </g>`;
   }
-  return `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">${linien}${punkte}</svg>`;
+  return `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    ${linien}${flugbahnen()}${punkte}</svg>`;
 }
 
 function systemKarte(sys){
@@ -1444,7 +1880,10 @@ function systemKarte(sys){
         ${spiel.auswahl===objId?`<circle cx="${x}" cy="${y}" r="${gr+2.4}" fill="none"
             stroke="var(--bernstein)" stroke-width="0.45"/>`:""}
         ${kolonie?`<circle cx="${x}" cy="${y}" r="${gr+1.3}" fill="none"
-            stroke="var(--signal)" stroke-width="0.5"/>`:""}`;
+            stroke="var(--signal)" stroke-width="0.5"/>`:""}
+        ${o.fraktion?`<circle cx="${x}" cy="${y}" r="${gr+1.3}" fill="none"
+            stroke="${PARTEIEN[o.fraktion].farbe}" stroke-width="0.5"
+            stroke-dasharray="1.6 1.2"/>`:""}`;
 
     if(bild){
       // Eigenes Bild als Scheibe einsetzen
@@ -1462,8 +1901,10 @@ function systemKarte(sys){
         font-weight="600" fill="var(--text)" stroke="#060b13" stroke-width="0.9"
         paint-order="stroke" stroke-linejoin="round">${o.name}</text>
       <text x="${x}" y="${untenFrei ? zeile2 : ty}" text-anchor="middle" font-size="2.4"
-        fill="var(--matt)" stroke="#060b13" stroke-width="0.8"
-        paint-order="stroke" stroke-linejoin="round">${def.name}</text>
+        fill="${o.fraktion ? PARTEIEN[o.fraktion].farbe : "var(--matt)"}"
+        stroke="#060b13" stroke-width="0.8"
+        paint-order="stroke" stroke-linejoin="round">${o.fraktion
+          ? PARTEIEN[o.fraktion].kurz : def.name}</text>
       </g>`;
   });
 
@@ -1492,6 +1933,75 @@ function objektTafel(objId, g, mitReitern){
   const obj = spiel.objekte[objId], def = OBJEKTE[obj.typ];
   const kolonie = spiel.kolonien[objId];
   const sys = spiel.systeme[obj.systemId];
+
+  // ----- Fremde Welt: Handelsmenü statt Besiedlung -----
+  if(!kolonie && obj.fraktion){
+    handelPruefen();
+    const d = PARTEIEN[obj.fraktion];
+    const dip = diploStand(obj.fraktion);
+    const hd = spiel.handel[obj.id];
+    const rest = hd ? (hd.bisAb - Date.now())/1000 : 0;
+    const gesperrt = dip.wert <= -60;
+
+    let felder = "";
+    for(const dd in obj.felder)
+      felder += `<div class="mess"><div class="k">${DISTRIKTE[dd].name}</div>
+                 <div class="v">${obj.felder[dd]}</div></div>`;
+
+    let h2 = `<div class="flaeche" style="border-left:2px solid ${d.farbe}">
+      <div class="weltkopf">
+        ${scheibe(obj.typ, 88)}
+        <div class="weltdaten">
+          <div class="gattung" style="color:${d.farbe}">${d.name}</div>
+          <div class="name">${obj.name}</div>
+          <div class="lage">${def.name} · System ${sys.name}
+            · ${(STERNE[sys.stern]||STERNE.gelber_stern).name}</div>
+          <div class="lage">Diese Welt ist bewohnt und lässt sich nicht besiedeln.</div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;
+           gap:10px;margin-top:12px;flex-wrap:wrap">
+        <span>Beziehung: <strong style="color:${dip.stufe.farbe}">${dip.stufe.name}</strong></span>
+        <span class="zahl" style="color:${dip.stufe.farbe}">${dip.wert > 0 ? "+" : ""}${dip.wert}</span>
+      </div>
+      <div class="schiene" style="margin-top:6px">
+        <i style="width:${(dip.wert - BEZIEHUNG_MIN) / (BEZIEHUNG_MAX - BEZIEHUNG_MIN) * 100}%;
+           background:${dip.stufe.farbe}"></i></div>
+      <div class="erlaeuterung" style="margin-top:8px">${d.beschreibung}</div>
+      ${d.risiko?`<div class="meldung">Etwa ${Math.round(d.risiko*100)} % der Lieferungen
+        dieser Partei kommen nicht an. Die Bezahlung ist dann trotzdem weg.</div>`:""}
+      <div class="messwerte" style="margin-top:12px">${felder}</div>
+    </div>`;
+
+    h2 += `<div class="rubrik"><h2>Handelsangebote</h2>
+      <span class="zusatz">${gesperrt ? "gesperrt" : "wechselt in " + zeitText(rest*TEMPO)}</span></div>`;
+
+    if(gesperrt){
+      h2 += `<div class="meldung rot">${d.kurz} verweigert jeden Handel.
+        Die Beziehung muss sich erst bessern.</div>`;
+    }else{
+      let offen = 0;
+      (hd?.angebote || []).forEach((a, i) => {
+        if(a.weg) return;
+        offen++;
+        const machbar = (spiel.res[a.will] || 0) >= a.preis;
+        const gibtName = a.gibt === "forschung" ? "Forschung" : RES_NAMEN[a.gibt];
+        h2 += `<div class="posten-zeile">
+          <div class="rumpf">
+            <div class="bezeichnung" style="color:${d.farbe}">${z0(a.menge)} ${gibtName}</div>
+            <div class="erlaeuterung">im Tausch gegen
+              <span class="zahl" style="color:${machbar?"var(--text)":"var(--bernstein)"}">
+                ${z0(a.preis)} ${RES_NAMEN[a.will]}</span>
+              · vorrätig ${z0(spiel.res[a.will]||0)}</div></div>
+          <button data-handel="${obj.id}" data-nr="${i}" ${machbar?"":"disabled"}>
+            ${machbar?"Tauschen":"Zu wenig"}</button></div>`;
+      });
+      if(!offen)
+        h2 += `<div class="flaeche"><div class="erlaeuterung">Ausverkauft.
+          Neue Ware in ${zeitText(rest*TEMPO)}.</div></div>`;
+    }
+    return h2;
+  }
 
   // ----- Nicht besiedelt -----
   if(!kolonie){
@@ -1663,69 +2173,56 @@ function objektTafel(objId, g, mitReitern){
 }
 
 /* ------------------------------------------------------------
-   Seite: Flotte
+   Seite: Werft — hier entstehen Schiffe
    ------------------------------------------------------------ */
-function seiteFlotte(g){
+function seiteWerft(g){
   const w = werftStufe();
-  let h = `<div class="rubrik"><h2>Unterwegs</h2>
-    <span class="zusatz">${w ? `Werft Stufe ${w} · Bauzeit −${Math.round((1-1/(1+0.25*(w-1)))*100)} %`
-      : "Keine Werft — Schiffe brauchen eine Werft auf einem Planeten"}</span></div>`;
+  let h = "";
 
-  if(!spiel.missionen.length && !spiel.werftauftrag)
-    h += `<div class="flaeche"><div class="erlaeuterung">Alle Schiffe im Heimatorbit.
-      Missionen starten Sie über die Karte: Sonden bei unerkundeten Systemen,
-      Frachter und Siedlerschiffe bei einzelnen Objekten, die Kampfflotte bei Piratensystemen.</div></div>`;
-
-  for(const m of spiel.missionen){
-    const rest = (m.endeAb-Date.now())/1000;
-    const ziel = (m.art === "sammeln" || m.art === "besiedeln")
-      ? spiel.objekte[m.ziel].name : spiel.systeme[m.ziel].name;
-    const flotte = Object.keys(m.schiffe).filter(t=>m.schiffe[t])
-      .map(t => `${m.schiffe[t]} ${SCHIFFE[t].name}`).join(", ") || "—";
-    const bez = { erkunden:"Erkundung", besiedeln:"Besiedlung", sammeln:"Sammelflug", angriff:"Angriff" }[m.art];
-    h += `<div class="vorgang">
-      <div class="zeile1"><strong>${bez} · ${ziel}</strong>
-        <span class="rest">${m.phase==="rueck"?"Rückflug ":""}${zeitText(rest*TEMPO)}</span></div>
-      <div class="erlaeuterung">${flotte}${m.bericht?" · "+m.bericht:""}</div>
-      ${fortschrittBalken(rest, m.dauer)}</div>`;
+  if(w < 1){
+    h += `<div class="meldung">Noch keine Werft gebaut. Eine Werft entsteht als Gebäude auf
+      einem Planeten — Habitate können keine bauen. Jede Stufe verkürzt die Bauzeit um 25 %.</div>`;
+  }else{
+    // Wo steht die beste Werft?
+    let ort = null;
+    for(const id in spiel.kolonien)
+      if((spiel.kolonien[id].gebaeude.werft||0) === w) { ort = spiel.objekte[id].name; break; }
+    h += `<div class="flaeche"><div class="messwerte" style="margin:0">
+      <div class="mess"><div class="k">Werftstufe</div><div class="v">${w} / ${GEBAEUDE.werft.maxLevel}</div></div>
+      <div class="mess"><div class="k">Standort</div><div class="v" style="font-size:14px">${ort||"—"}</div></div>
+      <div class="mess"><div class="k">Bauzeit</div>
+        <div class="v">−${Math.round((1-1/(1+0.25*(w-1)))*100)} %</div></div>
+      <div class="mess"><div class="k">Schiffe gesamt</div>
+        <div class="v">${Object.keys(SCHIFFE).reduce((a,t)=>a+flotteFrei(t),0)}</div></div>
+    </div></div>`;
   }
+
   if(spiel.werftauftrag){
     const rest = (spiel.werftauftrag.fertigAb-Date.now())/1000;
-    h += `<div class="vorgang">
-      <div class="zeile1"><strong>In der Werft · ${SCHIFFE[spiel.werftauftrag.typ].name}</strong>
+    h += `<div class="vorgang" style="margin-top:10px">
+      <div class="zeile1"><strong>Im Bau · ${SCHIFFE[spiel.werftauftrag.typ].name}</strong>
         <span class="rest">${zeitText(rest*TEMPO)}</span></div>
       ${fortschrittBalken(rest, spiel.werftauftrag.dauer)}</div>`;
   }
-  if(spiel.berichte && spiel.berichte.length){
-    h += `<div class="rubrik"><h2>Letzte Meldungen</h2></div>`;
-    for(const b of spiel.berichte.slice(0,3)){
-      const l = b.ladung ? Object.keys(b.ladung).filter(r=>b.ladung[r]>0)
-        .map(r=>`${z0(b.ladung[r])} ${RES_NAMEN[r]}`).join(" · ") : "";
-      const ton = b.text.startsWith("Niederlage") ? "rot"
-                : b.text.startsWith("Unentschieden") ? "" : "gut";
-      h += `<div class="meldung ${ton}">${b.text}${l?` Beute: ${l}`:""}</div>`;
 
-      // Gefechtsverlauf Runde für Runde
-      if(b.runden && b.runden.length){
-        h += `<div class="flaeche" style="margin-top:6px;padding:10px 13px">`;
-        for(const r of b.runden){
-          const meine = Object.keys(r.eigenVerlust).length
-            ? Object.keys(r.eigenVerlust).map(t=>`${r.eigenVerlust[t]} ${SCHIFFE[t].name}`).join(", ")
-            : "keine";
-          const seine = Object.keys(r.feindVerlust).length
-            ? Object.keys(r.feindVerlust).map(t=>`${r.feindVerlust[t]} ${SCHIFFE[t].name}`).join(", ")
-            : "keine";
-          h += `<div class="erlaeuterung" style="display:flex;gap:10px;flex-wrap:wrap;
-                  padding:3px 0;border-bottom:1px solid var(--kante)">
-            <span class="zahl" style="color:var(--matt);min-width:52px">Runde ${r.nummer}</span>
-            <span style="flex:1 1 140px">Eigene Verluste: ${meine}</span>
-            <span style="flex:1 1 140px;color:var(--signal)">Gegner: ${seine}</span>
-            <span class="zahl" style="color:var(--schwach)">${r.eigenRest} : ${r.feindRest}</span>
-          </div>`;
-        }
-        h += `</div>`;
-      }
+  let rolle = "";
+  for(const t in SCHIFFE){
+    const d = SCHIFFE[t];
+    if(d.rolle !== rolle){
+      rolle = d.rolle;
+      h += `<div class="rubrik"><h2>${rolle}</h2></div>`;
     }
+    let werte = [];
+    if(d.angriff)    werte.push(`Angriff ${d.angriff}`);
+    if(d.panzerung)  werte.push(`Panzerung ${d.panzerung}`);
+    if(d.kapazitaet) werte.push(`Ladung ${d.kapazitaet}`);
+    h += `<div class="posten-zeile">
+      <div class="rumpf">
+        <div class="bezeichnung">${d.name} <span class="stufe">${flotteFrei(t)} bereit</span></div>
+        <div class="erlaeuterung">${d.beschreibung}${werte.length?" — "+werte.join(", "):""}</div>
+        <div class="werte">${kostenZeile(d.kosten, schiffBauzeit(t))}</div></div>
+      <button data-schiff="${t}" ${(spiel.werftauftrag||w<1||!bezahlbar(d.kosten))?"disabled":""}>
+        ${w<1?"Keine Werft":spiel.werftauftrag?"Werft belegt":"Bauen"}</button></div>`;
   }
 
   // Kontertabelle als Nachschlagewerk
@@ -1740,37 +2237,292 @@ function seiteFlotte(g){
         <td style="padding:4px 9px;color:var(--matt);font-size:11px;text-transform:uppercase;
             letter-spacing:.1em">${SCHIFFE[a].name}</td>
         ${kt.map(v=>{
-          const w = KONTER[a][v];
-          const farbe = w > 1.2 ? "var(--signal)" : w < 0.8 ? "var(--alarm)" : "var(--matt)";
-          return `<td class="zahl" style="padding:4px 9px;color:${farbe}">×${w.toFixed(1)}</td>`;
+          const wv = KONTER[a][v];
+          const farbe = wv > 1.2 ? "var(--signal)" : wv < 0.8 ? "var(--alarm)" : "var(--matt)";
+          return `<td class="zahl" style="padding:4px 9px;color:${farbe}">×${wv.toFixed(1)}</td>`;
         }).join("")}</tr>`).join("")}
     </table>
     <div class="erlaeuterung" style="margin-top:8px">Jäger sind zu wendig für schwere Geschütze und
       reissen Kreuzer auf. Korvetten fangen Jäger ab. Kreuzer zermalmen Korvetten.
       Es zählt also die Mischung, nicht die Menge.</div></div>`;
+  return h;
+}
 
-  h += `<div class="rubrik"><h2>Schiffe bauen</h2>
-    <span class="zusatz">Es entsteht immer nur eins auf einmal</span></div>`;
-  let rolle = "";
-  for(const t in SCHIFFE){
-    const d = SCHIFFE[t];
-    if(d.rolle !== rolle){
-      rolle = d.rolle;
-      h += `<div class="rubrik" style="margin:16px 0 8px;border:none;padding:0">
-        <h2 style="color:var(--schwach)">${rolle}</h2></div>`;
+/* ------------------------------------------------------------
+   Seite: Flotte — Unterwegs, Berichte, Bestand
+   ------------------------------------------------------------ */
+function seiteFlotte(g){
+  if(!spiel.flotteTab) spiel.flotteTab = "unterwegs";
+  const t = spiel.flotteTab;
+  const offen = spiel.missionen.length;
+  const neue = (spiel.berichte||[]).filter(b=>!b.gelesen).length;
+
+  let h = `<div class="unterreiter" style="margin-top:0">
+    <button data-flottetab="unterwegs" class="${t==="unterwegs"?"an":""}">Unterwegs${offen?" · "+offen:""}</button>
+    <button data-flottetab="berichte" class="${t==="berichte"?"an":""}">Berichte${neue?" · "+neue:""}</button>
+    <button data-flottetab="bestand" class="${t==="bestand"?"an":""}">Bestand</button>
+  </div>`;
+
+  if(t === "unterwegs"){
+    if(!offen){
+      h += `<div class="flaeche" style="margin-top:12px"><div class="erlaeuterung">
+        Alle Schiffe im Heimatorbit. Missionen starten Sie über die Karte: Sonden bei unerkundeten
+        Systemen, Frachter und Siedlerschiffe bei einzelnen Objekten, die Kampfflotte bei
+        Piratensystemen.</div></div>`;
     }
-    let werte = [];
-    if(d.angriff)    werte.push(`Angriff ${d.angriff}`);
-    if(d.panzerung)  werte.push(`Panzerung ${d.panzerung}`);
-    if(d.kapazitaet) werte.push(`Ladung ${d.kapazitaet}`);
-    h += `<div class="posten-zeile">
-      <div class="rumpf">
-        <div class="bezeichnung">${d.name} <span class="stufe">${flotteFrei(t)} bereit</span></div>
-        <div class="erlaeuterung">${d.beschreibung}${werte.length?" — "+werte.join(", "):""}</div>
-        <div class="werte">${kostenZeile(d.kosten, schiffBauzeit(t))}</div></div>
-      <button data-schiff="${t}" ${(spiel.werftauftrag||w<1||!bezahlbar(d.kosten))?"disabled":""}>
-        ${w<1?"Keine Werft":spiel.werftauftrag?"Werft belegt":"Bauen"}</button></div>`;
+    for(const m of spiel.missionen){
+      const sym = FLUG_SYMBOL[m.art] || FLUG_SYMBOL.erkunden;
+      const rest = (m.endeAb-Date.now())/1000;
+      const ziel = (m.art === "sammeln" || m.art === "besiedeln")
+        ? spiel.objekte[m.ziel].name : spiel.systeme[m.nachSys].name;
+      const flotte = Object.keys(m.schiffe).filter(x=>m.schiffe[x])
+        .map(x=>`${m.schiffe[x]} ${SCHIFFE[x].name}`).join(", ") || "—";
+      const bez = { erkunden:"Erkundung", besiedeln:"Besiedlung",
+                    sammeln:"Sammelflug", angriff:"Angriff" }[m.art];
+      h += `<div class="vorgang" style="margin-top:10px">
+        <div class="zeile1">
+          <span style="display:flex;gap:9px;align-items:center">
+            <svg width="24" height="24" viewBox="-6 -6 12 12" style="flex:none">${sym.form(0,0,0)}</svg>
+            <strong>${bez} · ${ziel}</strong></span>
+          <span class="rest">${m.phase==="rueck"?"Rückflug ":""}${zeitText(rest*TEMPO)}</span></div>
+        <div class="erlaeuterung">${flotte}${m.bericht?" · "+m.bericht:""}</div>
+        ${fortschrittBalken(rest, m.dauer)}</div>`;
+    }
   }
+
+  if(t === "berichte"){
+    const b = spiel.berichte || [];
+    if(!b.length)
+      h += `<div class="flaeche" style="margin-top:12px"><div class="erlaeuterung">
+        Noch keine Meldungen. Hier erscheinen Kampfberichte, Erkundungsergebnisse und
+        Frachtlieferungen, sobald Flotten zurückkehren.</div></div>`;
+    for(let i = 0; i < b.length; i++){
+      const r = b[i];
+      const sym = FLUG_SYMBOL[r.art] || FLUG_SYMBOL.erkunden;
+      const ton = r.text?.startsWith("Niederlage") ? "rot"
+                : r.text?.startsWith("Unentschieden") ? "" : "gut";
+      const wann = new Date(r.zeit).toLocaleString("de-DE",
+        { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" });
+
+      // Verluste aus ausgesandter und heimgekehrter Flotte errechnen
+      const verluste = [];
+      for(const st in (r.ausgesandt||{})){
+        const weg = (r.ausgesandt[st]||0) - (r.heimgekehrt?.[st]||0);
+        if(weg > 0) verluste.push(`${weg} ${SCHIFFE[st].name}`);
+      }
+      const ladung = r.ladung ? Object.keys(r.ladung).filter(x=>r.ladung[x]>0)
+        .map(x=>`${z0(r.ladung[x])} ${RES_NAMEN[x]}`).join(" · ") : "";
+
+      h += `<div class="flaeche" style="margin-top:10px;border-left:2px solid ${sym.farbe}">
+        <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
+          <svg width="26" height="26" viewBox="-6 -6 12 12" style="flex:none">${sym.form(0,0,0)}</svg>
+          <div style="flex:1 1 200px">
+            <div class="bezeichnung">${r.text || "Meldung"}</div>
+            <div class="erlaeuterung">${sym.name} · ${r.ziel || "?"} · ${wann}</div>
+          </div>
+          <button class="still" data-bericht="${i}" style="font-size:12px;padding:5px 11px">
+            ${r.offen ? "Zuklappen" : "Einzelheiten"}</button>
+        </div>
+        ${ladung ? `<div class="meldung ${ton}" style="margin-top:8px">Beute: ${ladung}</div>` : ""}
+        ${verluste.length ? `<div class="erlaeuterung" style="margin-top:6px">
+          Verluste: ${verluste.join(", ")}</div>` : ""}`;
+
+      // Aufgeklappt: Gefechtsverlauf Runde für Runde
+      if(r.offen && r.runden && r.runden.length){
+        h += `<div style="margin-top:9px;border-top:1px solid var(--kante);padding-top:7px">`;
+        for(const rd of r.runden){
+          const meine = Object.keys(rd.eigenVerlust).length
+            ? Object.keys(rd.eigenVerlust).map(x=>`${rd.eigenVerlust[x]} ${SCHIFFE[x].name}`).join(", ")
+            : "keine";
+          const seine = Object.keys(rd.feindVerlust).length
+            ? Object.keys(rd.feindVerlust).map(x=>`${rd.feindVerlust[x]} ${SCHIFFE[x].name}`).join(", ")
+            : "keine";
+          h += `<div class="erlaeuterung" style="display:flex;gap:10px;flex-wrap:wrap;
+              padding:3px 0;border-bottom:1px solid var(--kante)">
+            <span class="zahl" style="color:var(--matt);min-width:54px">Runde ${rd.nummer}</span>
+            <span style="flex:1 1 130px">Eigene: ${meine}</span>
+            <span style="flex:1 1 130px;color:var(--signal)">Gegner: ${seine}</span>
+            <span class="zahl" style="color:var(--schwach)">${rd.eigenRest} : ${rd.feindRest}</span>
+          </div>`;
+        }
+        h += `</div>`;
+      }else if(r.offen){
+        h += `<div class="erlaeuterung" style="margin-top:8px">Kein Gefecht — es gibt keinen
+          Rundenverlauf zu diesem Einsatz.</div>`;
+      }
+      h += `</div>`;
+    }
+  }
+
+  if(t === "bestand"){
+    h += `<div class="rubrik"><h2>Verfügbare Schiffe</h2>
+      <span class="zusatz">Im Heimatorbit, einsatzbereit</span></div>`;
+    let unterwegs = {};
+    for(const m of spiel.missionen)
+      for(const st in m.schiffe) unterwegs[st] = (unterwegs[st]||0) + m.schiffe[st];
+
+    for(const st in SCHIFFE){
+      const d = SCHIFFE[st], frei = flotteFrei(st), weg = unterwegs[st] || 0;
+      if(!frei && !weg) continue;
+      let werte = [];
+      if(d.angriff)    werte.push(`Angriff ${d.angriff}`);
+      if(d.panzerung)  werte.push(`Panzerung ${d.panzerung}`);
+      if(d.kapazitaet) werte.push(`Ladung ${d.kapazitaet}`);
+      h += `<div class="posten-zeile">
+        <div class="rumpf">
+          <div class="bezeichnung">${d.name}
+            <span class="stufe">${frei} bereit${weg?` · ${weg} unterwegs`:""}</span></div>
+          <div class="erlaeuterung">${d.rolle}${werte.length?" — "+werte.join(", "):""}</div></div></div>`;
+    }
+    if(!Object.keys(SCHIFFE).some(st=>flotteFrei(st)||unterwegs[st]))
+      h += `<div class="flaeche"><div class="erlaeuterung">Keine Schiffe vorhanden.
+        Bauen Sie welche in der Werft.</div></div>`;
+  }
+  return h;
+}
+
+/* ------------------------------------------------------------
+   Seite: Diplomatie — Verhältnis zu den Parteien
+   ------------------------------------------------------------ */
+function seiteDiplomatie(g){
+  handelPruefen();
+  let h = `<div class="flaeche"><div class="erlaeuterung">
+    Fremde Welten lassen sich nicht besiedeln. Was Sie mit ihren Bewohnern tun, entscheidet
+    die Beziehung: Sie beginnt bei 0 und reicht von −100 bis +100. Handel hebt sie, bessere
+    Beziehungen bringen bessere Kurse. Ab −60 verweigert eine Partei jeden Handel.</div></div>`;
+
+  for(const pid in PARTEIEN){
+    const d = PARTEIEN[pid];
+    const dip = diploStand(pid);
+    const welten = fremdeWelten(false).filter(o=>o.fraktion===pid);
+    const bekannt = welten.filter(o=>spiel.systeme[o.systemId].erkundet);
+    // Position auf dem Band von −100 bis +100
+    const pos = (dip.wert - BEZIEHUNG_MIN) / (BEZIEHUNG_MAX - BEZIEHUNG_MIN) * 100;
+
+    h += `<div class="rubrik" style="border-left:2px solid ${d.farbe};padding-left:9px">
+        <h2 style="color:var(--text)">${d.name}</h2>
+        <span class="zusatz">${bekannt.length} von ${welten.length} Welten bekannt</span></div>
+      <div class="flaeche">
+        <div class="erlaeuterung">${d.beschreibung}</div>
+
+        <div style="display:flex;justify-content:space-between;align-items:baseline;
+             margin-top:12px;gap:10px;flex-wrap:wrap">
+          <span>Verhältnis: <strong style="color:${dip.stufe.farbe}">${dip.stufe.name}</strong></span>
+          <span class="zahl" style="font-size:17px;color:${dip.stufe.farbe}">
+            ${dip.wert > 0 ? "+" : ""}${dip.wert}</span>
+        </div>
+
+        <!-- Band von −100 bis +100 mit Nullmarke -->
+        <div style="position:relative;height:8px;background:var(--raum);border-radius:4px;
+             margin-top:7px;overflow:hidden">
+          <div style="position:absolute;left:0;top:0;bottom:0;width:${pos}%;
+               background:${dip.stufe.farbe};opacity:.75"></div>
+          <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;
+               background:var(--kante-hell)"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:3px">
+          <span class="erlaeuterung">−100</span>
+          <span class="erlaeuterung">0</span>
+          <span class="erlaeuterung">+100</span>
+        </div>
+
+        <div class="messwerte" style="margin-top:12px">
+          <div class="mess"><div class="k">Handelskurs</div>
+            <div class="v">${Math.round(dip.stufe.bonus*100)} %</div></div>
+          <div class="mess"><div class="k">Nächste Stufe</div>
+            <div class="v" style="font-size:14px">${dip.naechst
+              ? dip.naechst.name+" ab "+dip.naechst.ab : "höchste erreicht"}</div></div>
+          <div class="mess"><div class="k">Handel</div>
+            <div class="v" style="font-size:14px;color:${dip.wert<=-60?"var(--alarm)":"var(--signal)"}">
+              ${dip.wert<=-60?"verweigert":"möglich"}</div></div>
+        </div>
+      </div>`;
+
+    // Bekannte Welten dieser Partei
+    if(bekannt.length){
+      for(const o of bekannt){
+        const hd = spiel.handel[o.id];
+        const offen = (hd?.angebote || []).filter(a=>!a.weg).length;
+        h += `<div class="posten-zeile">
+          <div class="rumpf">
+            <div class="bezeichnung">${o.name}
+              <span class="stufe">${OBJEKTE[o.typ].name}</span></div>
+            <div class="erlaeuterung">System ${spiel.systeme[o.systemId].name}
+              · ${offen} Angebote offen</div></div>
+          <button class="still" data-objekt="${o.id}">Ansehen</button></div>`;
+      }
+    }else{
+      h += `<div class="flaeche"><div class="erlaeuterung">
+        Noch keine Welt dieser Partei entdeckt. Erkunden Sie weitere Systeme.</div></div>`;
+    }
+  }
+  return h;
+}
+
+/* ------------------------------------------------------------
+   Seite: Aufträge — Fortschritt ohne Ablaufdatum
+   ------------------------------------------------------------ */
+function seiteAuftraege(g){
+  const st = aufgabenStand();
+  const r = rangZu(st.punkte);
+  const erfuellt = st.liste.filter(a=>a.erfuellt).length;
+
+  // Fortschritt zum nächsten Rang
+  const von = r.jetzt.punkte;
+  const bis = r.naechst ? r.naechst.punkte : r.jetzt.punkte;
+  const anteil = r.naechst ? (st.punkte - von) / (bis - von) * 100 : 100;
+
+  let h = `<div class="flaeche">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div>
+        <div class="gattung">Rang ${r.stufe} von ${RAENGE.length}</div>
+        <div class="name" style="font-size:22px">${r.jetzt.titel}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="zahl" style="font-size:20px;font-weight:600">${st.punkte}</div>
+        <div class="erlaeuterung">Punkte${r.naechst?` · ${bis - st.punkte} bis ${r.naechst.titel}`:" · höchster Rang"}</div>
+      </div>
+    </div>
+    <div class="schiene" style="margin-top:11px;height:6px">
+      <i style="width:${Math.min(100, anteil)}%"></i></div>
+    <div class="erlaeuterung" style="margin-top:9px">
+      ${erfuellt} von ${st.liste.length} Aufträgen erfüllt. Aufträge laufen nicht ab und werden
+      nie zurückgesetzt — es zählt, was Sie erreichen, nicht wie oft Sie vorbeischauen.</div>
+  </div>`;
+
+  // Nach Gruppen sortiert, offene zuerst
+  const gruppen = [...new Set(st.liste.map(a=>a.gruppe))];
+  for(const gr of gruppen){
+    const drin = st.liste.filter(a=>a.gruppe===gr)
+      .sort((a,b)=> (a.erfuellt?1:0) - (b.erfuellt?1:0));
+    const fertig = drin.filter(a=>a.erfuellt).length;
+    h += `<div class="rubrik"><h2>${gr}</h2>
+      <span class="zusatz">${fertig} / ${drin.length}</span></div>`;
+    for(const a of drin){
+      const anteilA = Math.min(100, a.wert / a.ziel * 100);
+      h += `<div class="posten-zeile ${a.erfuellt?"erschoepft":""}">
+        <div class="rumpf">
+          <div class="bezeichnung">${a.erfuellt?"✓ ":""}${a.name}
+            <span class="stufe">${a.punkte} Punkte</span></div>
+          <div class="erlaeuterung">${a.beschreibung}</div>
+          ${a.erfuellt ? "" : `<div class="schiene" style="margin-top:6px">
+            <i style="width:${anteilA}%"></i></div>`}
+        </div>
+        <div class="zahl" style="color:${a.erfuellt?"var(--signal)":"var(--matt)"}">
+          ${z0(a.wert)} / ${z0(a.ziel)}</div></div>`;
+    }
+  }
+
+  h += `<div class="rubrik"><h2>Ränge</h2></div><div class="flaeche">`;
+  for(let i=0;i<RAENGE.length;i++){
+    const erreicht = st.punkte >= RAENGE[i].punkte;
+    h += `<div style="display:flex;justify-content:space-between;padding:4px 0;
+        border-bottom:${i<RAENGE.length-1?"1px solid var(--kante)":"none"}">
+      <span style="color:${erreicht?"var(--text)":"var(--schwach)"}">
+        ${erreicht?"✓ ":""}${RAENGE[i].titel}</span>
+      <span class="zahl" style="color:var(--matt)">${RAENGE[i].punkte}</span></div>`;
+  }
+  h += `</div>`;
   return h;
 }
 
@@ -1806,6 +2558,13 @@ function seiteForschung(g){
 document.addEventListener("click", e => {
   const sysEl = e.target.closest("[data-system]");
   if(sysEl){ spiel.offenesSystem = +sysEl.dataset.system; spiel.ansicht = "system"; speichern(); zeichnen(); return; }
+  const ansehen = e.target.closest("button[data-objekt]");
+  if(ansehen){
+    const id = +ansehen.dataset.objekt;
+    spiel.auswahl = id; spiel.offenesSystem = spiel.objekte[id].systemId;
+    spiel.ansicht = "objekt"; spiel.tab = "karte";
+    speichern(); zeichnen(); return;
+  }
   const objEl = e.target.closest("[data-objekt]");
   if(objEl && !e.target.closest("button")){
     const id = +objEl.dataset.objekt;
@@ -1814,8 +2573,24 @@ document.addEventListener("click", e => {
   }
   const b = e.target.closest("button");
   if(!b) return;
-  if(b.dataset.tab){ spiel.tab = b.dataset.tab; speichern(); zeichnen(); }
+  if(b.dataset.tab){
+    spiel.tab = b.dataset.tab;
+    if(b.dataset.tab === "auftrag") spiel.neueAufgaben = 0;
+    speichern(); zeichnen();
+  }
   else if(b.dataset.koltab){ spiel.kolonieTab = b.dataset.koltab; speichern(); zeichnen(); }
+  else if(b.dataset.flottetab){
+    spiel.flotteTab = b.dataset.flottetab;
+    // Beim Öffnen der Berichte gelten alle als gelesen
+    if(b.dataset.flottetab === "berichte")
+      for(const r of (spiel.berichte||[])) r.gelesen = true;
+    speichern(); zeichnen();
+  }
+  else if(b.dataset.handel){ handeln(b.dataset.handel, +b.dataset.nr); }
+  else if(b.dataset.bericht){
+    const r = (spiel.berichte||[])[+b.dataset.bericht];
+    if(r){ r.offen = !r.offen; speichern(); zeichnen(); }
+  }
   else if(b.dataset.kolonie){ spiel.auswahl = +b.dataset.kolonie; speichern(); zeichnen(); }
   else if(b.dataset.ansicht){ spiel.ansicht = b.dataset.ansicht; speichern(); zeichnen(); }
   else if(b.dataset.sonde)        sondeSenden(+b.dataset.sonde);
@@ -1827,7 +2602,8 @@ document.addEventListener("click", e => {
   else if(b.dataset.schiff)       schiffBauen(b.dataset.schiff);
   else if(b.dataset.sammeln){
     const n = flotteFrei("frachter");
-    if(n > 0) starteMission("sammeln", +b.dataset.sammeln, { frachter:n });
+    if(n > 0 && !spiel.objekte[+b.dataset.sammeln].fraktion)
+      starteMission("sammeln", +b.dataset.sammeln, { frachter:n });
   }
   else if(b.dataset.angriff){
     const flotte = {};
