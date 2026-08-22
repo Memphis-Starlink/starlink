@@ -41,6 +41,13 @@
   /* Planetenbilder bekommen einen leisen Lichtsaum statt eines Kastens */
   .weltbild{ object-fit:contain; }
 
+  /* Schiffskachel — rechteckig mit weichem Rand statt freigestellt */
+  .schiffbild{
+    flex:none; width:74px; height:74px; object-fit:cover;
+    border-radius:8px; border:1px solid var(--kante);
+  }
+  .schiffbild.klein{ width:46px; height:46px; border-radius:6px }
+
   /* ---------- Kopfleiste, klebt beim Scrollen ---------- */
   .kopf{
     position:sticky; top:0; z-index:30;
@@ -457,6 +464,21 @@ const RAENGE = [
   { punkte:650, titel:"Archon" },
   { punkte:900, titel:"Hoher Archon" },
 ];
+
+/* ============================================================
+   0b2. SCHIFFSBILDER
+   Anders als Planeten werden Schiffe nicht freigestellt, sondern
+   als abgerundete Kachel mit eigenem Hintergrund gezeigt.
+   Leer lassen = es erscheint nur das Flugsymbol.
+   ============================================================ */
+const SCHIFF_BILDER = {
+  sonde:         "",
+  siedlerschiff: "",
+  frachter:      "",
+  jaeger:        "bilder/schiff-jaeger.webp",
+  korvette:      "",
+  kreuzer:       "",
+};
 
 /* ============================================================
    1. RESSOURCEN
@@ -2199,8 +2221,12 @@ function seiteWerft(g){
 
   if(spiel.werftauftrag){
     const rest = (spiel.werftauftrag.fertigAb-Date.now())/1000;
+    const bt = spiel.werftauftrag.typ;
     h += `<div class="vorgang" style="margin-top:10px">
-      <div class="zeile1"><strong>Im Bau · ${SCHIFFE[spiel.werftauftrag.typ].name}</strong>
+      <div class="zeile1">
+        <span style="display:flex;gap:10px;align-items:center">
+          ${SCHIFF_BILDER[bt] ? `<img class="schiffbild klein" src="${SCHIFF_BILDER[bt]}" alt="">` : ""}
+          <strong>Im Bau · ${SCHIFFE[bt].name}</strong></span>
         <span class="rest">${zeitText(rest*TEMPO)}</span></div>
       ${fortschrittBalken(rest, spiel.werftauftrag.dauer)}</div>`;
   }
@@ -2217,6 +2243,8 @@ function seiteWerft(g){
     if(d.panzerung)  werte.push(`Panzerung ${d.panzerung}`);
     if(d.kapazitaet) werte.push(`Ladung ${d.kapazitaet}`);
     h += `<div class="posten-zeile">
+      ${SCHIFF_BILDER[t] ? `<img class="schiffbild" src="${SCHIFF_BILDER[t]}" alt="${d.name}"
+        loading="lazy">` : ""}
       <div class="rumpf">
         <div class="bezeichnung">${d.name} <span class="stufe">${flotteFrei(t)} bereit</span></div>
         <div class="erlaeuterung">${d.beschreibung}${werte.length?" — "+werte.join(", "):""}</div>
@@ -2369,6 +2397,8 @@ function seiteFlotte(g){
       if(d.panzerung)  werte.push(`Panzerung ${d.panzerung}`);
       if(d.kapazitaet) werte.push(`Ladung ${d.kapazitaet}`);
       h += `<div class="posten-zeile">
+        ${SCHIFF_BILDER[st] ? `<img class="schiffbild" src="${SCHIFF_BILDER[st]}" alt="${d.name}"
+          loading="lazy">` : ""}
         <div class="rumpf">
           <div class="bezeichnung">${d.name}
             <span class="stufe">${frei} bereit${weg?` · ${weg} unterwegs`:""}</span></div>
