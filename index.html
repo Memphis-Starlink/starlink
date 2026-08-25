@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Aussenposten — Etappe 5</title>
+<title>Aussenposten — Etappe 28</title>
 <style>
   :root{
     /* Leitstand-Palette: tiefes Vakuum, Stahlblau, Signalfarben */
@@ -63,22 +63,30 @@
   .marke .kennung{font-family:var(--daten);font-size:10.5px;color:var(--schwach);letter-spacing:.09em}
 
   /* Ressourcenstreifen — waagerecht scrollbar statt umbrechend */
+  /* Bricht in eine zweite Reihe um, statt zu scrollen: Seit Etappe 31
+     sind die Kacheln schmal genug, und auf dem Handy ist Umbruch besser
+     ablesbar als Wischen. */
   .streifen{
-    display:flex;gap:7px;overflow-x:auto;padding:9px 0 10px;
-    scrollbar-width:none;
+    display:flex;flex-wrap:wrap;gap:5px;padding:9px 0 10px;
   }
   .streifen::-webkit-scrollbar{display:none}
+  /* Etappe 31: Symbol statt Textetikett — dadurch passt eine Ressource in
+     rund die halbe Breite, und der Streifen bleibt auch bei dreizehn
+     Stoffen in einer Zeile lesbar. Der Name steht im Tooltip. */
   .posten{
-    flex:0 0 auto;min-width:96px;
+    flex:0 0 auto;min-width:0;
+    display:flex;align-items:center;gap:7px;
     background:var(--konsole);border:1px solid var(--kante);border-radius:6px;
-    padding:5px 9px 6px;position:relative;overflow:hidden;
+    padding:5px 10px 5px 9px;position:relative;overflow:hidden;
   }
   .posten::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--ton)}
-  .posten .etikett{font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:var(--matt);
-                   white-space:nowrap}
-  .posten .stand{font-family:var(--daten);font-size:15px;font-weight:600;line-height:1.3}
-  .posten .fluss{font-family:var(--daten);font-size:10.5px;color:var(--signal);white-space:nowrap}
+  .posten .res-sym{flex:none;color:var(--ton);display:block}
+  .posten .werte-block{display:flex;flex-direction:column;line-height:1.15}
+  .posten .stand{font-family:var(--daten);font-size:15px;font-weight:600}
+  .posten .fluss{font-family:var(--daten);font-size:10px;color:var(--signal);white-space:nowrap}
   .posten .fluss.minus{color:var(--alarm)}
+  /* Symbole ausserhalb des Streifens erben die Textfarbe */
+  .res-sym{vertical-align:-2px}
 
   /* ---------- Hauptnavigation ---------- */
   .nav{display:flex;gap:0;border-top:1px solid var(--kante);overflow-x:auto;scrollbar-width:none}
@@ -204,7 +212,33 @@
   .fuss button{background:none;border:1px solid var(--kante);color:var(--matt);font-size:11.5px;
                padding:5px 11px;font-weight:400}
 
+  /* Fundstück-Fenster */
+  #fundhuelle{position:fixed;inset:0;z-index:60;display:none;place-items:center;
+    background:rgba(3,6,12,.86);backdrop-filter:blur(4px);padding:16px}
+  #fundhuelle.an{display:grid}
+  .fundkasten{background:var(--konsole);border:1px solid var(--kante-hell);border-radius:11px;
+    padding:20px 22px;max-width:460px;width:100%}
+  .fundkasten h3{margin:0 0 4px;font-size:18px;font-weight:600}
+  .fundbahn{position:relative;height:38px;background:var(--raum);border:1px solid var(--kante);
+    border-radius:7px;margin:16px 0 8px;overflow:hidden;cursor:pointer}
+  .fundzone{position:absolute;top:0;bottom:0;background:rgba(86,214,198,.22);
+    border-left:1px solid var(--signal);border-right:1px solid var(--signal)}
+  .fundzeiger{position:absolute;top:-2px;bottom:-2px;width:3px;background:var(--bernstein);
+    box-shadow:0 0 8px var(--bernstein)}
+  .fundpunkte{display:flex;gap:5px;margin-top:10px}
+  .fundpunkte i{width:100%;height:4px;border-radius:2px;background:var(--konsole2)}
+  .fundpunkte i.voll{background:var(--signal)}
+  .fundpunkte i.leer{background:var(--alarm);opacity:.5}
+
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* Etappe 30: schmale Zeile für seltene Stoffe unter dem Ressourcenstreifen */
+.selten-zeile{ display:flex; gap:14px; align-items:center; flex-wrap:wrap;
+  width:100%; padding:5px 2px 1px; margin-top:2px;
+  border-top:1px solid var(--kante); }
+.selten-posten{ display:flex; align-items:center; gap:5px; font-size:12px; }
+.selten-posten svg{ flex:none; }
+.selten-posten .zahl{ font-size:12.5px; }
 </style>
 </head>
 <body>
@@ -223,6 +257,8 @@
 </header>
 
 <main id="buehne"></main>
+
+<div id="fundhuelle"><div class="fundkasten" id="fundkasten"></div></div>
 
 <div class="fuss">
   <span>Der Spielstand liegt im Browser dieses Geräts.</span>
@@ -244,20 +280,178 @@ const START_MAX_PLANETEN = 5;
 const START_MAX_HABITATE = 5;
 const FRACHTER_KAPAZITAET = 400;   // Ladung je Frachter und Sammelmission
 const KAMPF_RUNDEN = 8;            // Höchstzahl der Gefechtsrunden
-const SCHADEN_STREUUNG = 0.15;     // ±15 % Zufall auf den Rundenschaden
-const SCHADEN_FAKTOR = 0.90;       // dämpft den Rundenschaden — kleiner = längere Gefechte
+/* Etappe 27 neu eingestellt: Seit Restschaden über Runden stehenbleibt
+   (siehe verlusteAnwenden) kommt mehr Schaden an, deshalb ist der Faktor
+   niedriger und die Streuung höher als zuvor. Ergebnis: Bei gleicher
+   Stärke verliert man, bei 1,25-facher Übermacht ist der Ausgang offen
+   (rund 7 von 10), ab 1,5-facher ist der Sieg sicher. */
+const SCHADEN_STREUUNG = 0.28;     // Zufall auf den Rundenschaden
+const SCHADEN_FAKTOR = 0.75;       // dämpft den Rundenschaden — kleiner = längere Gefechte
 const PANZER_ZU_LEBEN = 7;         // wie viel Widerstandskraft ein Punkt Panzerung gibt
 
 /* Kontertabelle: Was richtet die Zeile gegen die Spalte aus?
    Über 1 = stark dagegen, unter 1 = schwach.
    Jäger sind zu wendig für schwere Geschütze, reissen aber schwere
    Schiffe auf. Korvetten fangen Jäger ab. Kreuzer zermalmen Korvetten. */
+/* Jede Konterrolle gibt es leicht und schwer: Jäger/Zerstörer kontern
+   schwere Schiffe, Korvette/Fregatte kontern leichte, Kreuzer/Schlachtschiff
+   kontern mittlere. Die schwere Ausführung hat dieselben Konterwerte —
+   sie ist nicht besser, nur haltbarer und teurer. Die Mischung zählt
+   weiterhin, es gibt nur mehr Wege zu ihr. */
 const KONTER = {
-  jaeger:   { jaeger:1.0, korvette:0.6, kreuzer:1.7, pirat:1.0 },
-  korvette: { jaeger:1.8, korvette:1.0, kreuzer:0.7, pirat:1.1 },
-  kreuzer:  { jaeger:0.5, korvette:1.6, kreuzer:1.0, pirat:1.2 },
-  pirat:    { jaeger:1.1, korvette:1.0, kreuzer:0.9, pirat:1.0 },
+  jaeger:        { jaeger:1.0, zerstoerer:1.0, korvette:0.6, fregatte:0.6, kreuzer:1.7, schlachtschiff:1.7, pirat:1.0 },
+  zerstoerer:    { jaeger:1.0, zerstoerer:1.0, korvette:0.6, fregatte:0.6, kreuzer:1.7, schlachtschiff:1.7, pirat:1.0 },
+  korvette:      { jaeger:1.8, zerstoerer:1.8, korvette:1.0, fregatte:1.0, kreuzer:0.7, schlachtschiff:0.7, pirat:1.1 },
+  fregatte:      { jaeger:1.8, zerstoerer:1.8, korvette:1.0, fregatte:1.0, kreuzer:0.7, schlachtschiff:0.7, pirat:1.1 },
+  kreuzer:       { jaeger:0.5, zerstoerer:0.5, korvette:1.6, fregatte:1.6, kreuzer:1.0, schlachtschiff:1.0, pirat:1.2 },
+  schlachtschiff:{ jaeger:0.5, zerstoerer:0.5, korvette:1.6, fregatte:1.6, kreuzer:1.0, schlachtschiff:1.0, pirat:1.2 },
+  pirat:         { jaeger:1.1, zerstoerer:1.1, korvette:1.0, fregatte:1.0, kreuzer:0.9, schlachtschiff:0.9, pirat:1.0, landungsschiff:1.6 },
 };
+/* ============================================================
+   GEFECHTSZONEN  (Etappe 27)
+   Der Kampf kennt keine Positionen — aber er kennt Zielanteile.
+   Eine Zone ist deshalb nichts weiter als ein Gewicht darauf:
+   Wer vorn steht, zieht Feuer, wer hinten steht, wird selten
+   getroffen. Daraus ergibt sich von selbst, dass eine Flotte eine
+   Front braucht: Eine reine Artillerieflotte hat niemanden, der
+   das Feuer bindet, und wird restlos aufgerieben.
+   Bewusst weich gewichtet statt harter Reihenfolge — sonst ist die
+   vordere Reihe reines Verbrauchsmaterial und die hintere
+   unantastbar.
+   ============================================================ */
+/* schutz = wie stark eine Zone von einer vollen Front gedeckt wird.
+   Entscheidend ist, dass der Schutz von der TATSÄCHLICHEN Front abhängt
+   und nicht bloss von den Anteilen innerhalb der eigenen Flotte:
+   Sonst wäre in einer reinen Artillerieflotte "hinten" wieder gleich
+   100 % des Feuers, und die fehlende Front bliebe folgenlos. */
+const ZONEN = {
+  front:  { name:"Vordere Linie", schutz:0.00,
+            beschreibung:"Bindet das gegnerische Feuer und deckt die anderen." },
+  mitte:  { name:"Mittlere Linie", schutz:0.55,
+            beschreibung:"Trägt den Kampf, solange die Front hält." },
+  hinten: { name:"Hintere Linie", schutz:0.90,
+            beschreibung:"Wird kaum getroffen — aber nur, solange vorn jemand steht." },
+};
+// Wie gut ist eine Flotte gedeckt? Anteil der Frontschiffe, gesättigt bei 40 %.
+const DECKUNG_SAETTIGUNG = 0.40;
+function deckungsgrad(flotte){
+  let vorn = 0, gesamt = 0, zusatz = 0;
+  for(const t in flotte){
+    const n = flotte[t]; if(!n) continue;
+    gesamt += n;
+    if(zoneVon(t) === "front") vorn += n;
+    // Bollwerkschiffe schirmen ab: sie heben die Deckung über den reinen Anteil
+    if(SCHIFFE[t] && SCHIFFE[t].deckungsbonus) zusatz += SCHIFFE[t].deckungsbonus * n;
+  }
+  if(!gesamt) return 0;
+  return Math.min(1, (vorn/gesamt) / DECKUNG_SAETTIGUNG + Math.min(0.5, zusatz/gesamt));
+}
+function zoneVon(typ){
+  const d = SCHIFFE[typ];
+  return (d && d.zone) || "mitte";
+}
+/* Zielgewicht eines Schiffs: voll beschossen, wenn keine Front steht,
+   und um den Zonenschutz gemindert, je besser die Front gedeckt ist. */
+function zonenGewicht(typ, deckung){
+  return 1 - (deckung || 0) * ZONEN[zoneVon(typ)].schutz;
+}
+
+/* Welche Konterrolle ein Schiff spielt. Beuteschiffe tragen hier ihre
+   Sonderregel: mehrere Rollen, wechselnde Rolle oder gar keine. */
+function konterZeile(typ){
+  const d = SCHIFFE[typ];
+  if(!d) return KONTER.pirat;
+  if(d.konterRolle) return KONTER[d.konterRolle] || KONTER.pirat;
+  return KONTER[typ] || KONTER.pirat;
+}
+/* --- Bodenoffensive ---
+   Absichtlich dieselben Formeln wie im Raumkampf: gleiche Rundenzahl,
+   gleiche Streuung, gleicher Umgang mit Verlusten. Nur die Konter und
+   der Geländevorteil des Verteidigers sind eigen. */
+const BODEN_RUNDEN = 8;
+const TRUPPEN_JE_LANDUNGSSCHIFF = 20;  // Ladekapazität eines Landungsschiffs
+const BELAGERUNG_GRUND = 4*3600;       // Sekunden Grundzeit vor dem Sturm
+const BELAGERUNG_JE_KOPF = 900;        // zusätzlich je Bewohner der Zielwelt
+const BELAGERUNG_ZERMUERBUNG = 0.30;   // so viel Garnison zerfällt über die volle Belagerung
+/* Eigene Werte für den Boden — der Raumkampf bleibt davon unberührt.
+   Niedriger Schadensfaktor und höhere Streuung ergeben längere,
+   offenere Gefechte: Bei gleicher Truppenzahl gewinnt der Verteidiger,
+   bei 1,25-facher Übermacht ist der Ausgang offen (etwa 6 von 10),
+   ab 1,5-facher Übermacht ist der Sieg sicher. */
+const BODEN_SCHADEN_FAKTOR = 0.42;
+const BODEN_STREUUNG = 0.45;
+const BODEN_PANZER_ZU_LEBEN = 6;
+
+/* Konterdreieck am Boden — dieselbe Idee wie im Orbit:
+   Die Mischung entscheidet, nicht die Menge.
+   Infanterie überrennt ungeschützte Geschützstellungen. Panzer
+   walzen Infanterie nieder. Artillerie knackt Panzer auf Distanz. */
+const KONTER_BODEN = {
+  infanterie: { infanterie:1.0, panzer:0.6, artillerie:1.7 },
+  panzer:     { infanterie:1.8, panzer:1.0, artillerie:0.7 },
+  artillerie: { infanterie:0.6, panzer:1.6, artillerie:1.0 },
+};
+
+/* Geländevorteil des Verteidigers je Weltentyp.
+   Bewusst hier und nicht im Programmablauf — Zahlen gehören in Tabellen. */
+const GELAENDE = {
+  dschungel:1.40, vulkan:1.40, eis:1.25, tundra:1.15, fels:1.15, karg:1.15,
+  ozean:1.00, wueste:1.00, mond:1.05,
+  grossasteroid:1.60, wasserstoffwolke:1.60, erzguertel:1.60,
+  photonenwolke:1.60, methanwolke:1.60, antike:1.75,
+};
+function gelaendeFaktor(typ){ return GELAENDE[typ] || 1.0; }
+
+const BEZIEHUNG_INVASION = -40;        // Rufverlust je eroberter Welt
+
+/* ============================================================
+   ABWESENHEIT  (Etappe 28)
+   Die frühere Regel "Abwesenheit wird nie bestraft" ist ersetzt durch
+   den genaueren Satz:
+
+       Abwesenheit darf GELEGENHEITEN kosten, niemals AUFGEBAUTES.
+
+   Wer eine Woche weg war, hatte weniger Ertrag und hat eine
+   Entscheidung verpasst — er hat aber keine Kolonie, kein Gebäude und
+   keinen Auftragsfortschritt verloren. Unverändert gilt die zweite
+   Hälfte: nichts belohnt regelmässiges Einloggen. Keine Tagesboni,
+   keine Ernte-Zeitfenster, keine verfallenden Aufträge.
+   ============================================================ */
+
+// --- Überfälle ---
+const UEBERFALL_MINDESTGROESSE = 6;     // erst ab dieser Koloniegrösse wird man beachtet
+const UEBERFALL_VORWARNUNG = 18*3600;   // Sekunden Vorwarnzeit — immer angekündigt
+const UEBERFALL_ABSTAND = 4*24*3600;    // Mindestabstand zwischen zwei Überfällen
+const UEBERFALL_ANTEIL = 0.18;          // höchstens so viel des Lagerbestands geht verloren
+const UEBERFALL_SCHONFRIST = 7*24*3600; // Schonzeit ab Spielbeginn
+const UEBERFALL_SCHIFFE = 0.12;         // Anteil der Flotte, der bei der Abwehr fällt
+
+/* --- Ressourcencluster (Etappe 29) ---
+   Vorübergehende Vorkommen im All, die Förderschiffe abbauen. Sie machen
+   aktives Spielen lohnender als passives Warten: Wer Förderflotten
+   umschichtet, sobald ein Cluster leer ist, holt deutlich mehr heraus.
+
+   Die Regel dazu lautet seit Etappe 29:
+       Aktives Spielen darf mehr einbringen als passives Warten. Der Vorteil
+       entsteht aus Entscheidungen, nicht aus der Uhrzeit des Einloggens.
+
+   Deshalb: Standzeiten von mehreren Tagen, keine Ernte-Zeitfenster, und eine
+   Förderflotte geht niemals verloren — verfällt ein Cluster während der
+   Förderung, kehrt sie mit der bis dahin geförderten Ladung zurück. */
+const CLUSTER_HOECHSTZAHL = 4;      // so viele liegen höchstens gleichzeitig aus
+const CLUSTER_NACHSCHUB = 8*3600;   // Mindestabstand, bis ein neuer erscheint
+const CLUSTER_CHANCE = 0.45;        // Wahrscheinlichkeit je Prüfung
+/* Seltene Stoffe werden viel langsamer gefördert als Massengut — sonst wäre
+   eine Ader in Minuten leer und ihre Standzeit bedeutungslos. Mit diesem
+   Teiler bindet ein seltener Cluster eine Förderflotte über Stunden, und
+   die Frage "wie viele Schiffe schicke ich" bekommt Gewicht. */
+const SELTEN_FOERDER_TEILER = 45;
+
+// --- Ereignisse ---
+const EREIGNIS_FRIST = 2*24*3600;       // so lange steht eine Entscheidung offen
+const EREIGNIS_ABSTAND = 20*3600;       // Mindestabstand zwischen zwei Ereignissen
+const EREIGNIS_CHANCE = 0.35;           // Wahrscheinlichkeit je Prüfung
+
 const WOHNRAUM_JE_STUFE = 10;
 const LAGER_JE_STUFE = 2000;
 
@@ -283,37 +477,308 @@ const BILDER = {
 };
 
 /* ============================================================
+   0a2. STRATEGISCHE RESSOURCEN
+   Sie werden nicht gefördert, sondern besessen. Ein Vorkommen ist
+   eine Eigenschaft der Welt, kein Distrikt — man kann es nicht
+   ausbauen, nur besiedeln. Der Vorteil gilt reichsweit, sobald
+   die Welt eine eigene Kolonie ist.
+   Mehrfachbesitz wirkt gestaffelt, aber nicht unbegrenzt.
+   ============================================================ */
+const STRATEGISCH = {
+  iridium: {
+    name:"Iridium", farbe:"#c9d4e0",
+    beschreibung:"Dichtes Schwermetall aus dem Kern erloschener Welten.",
+    wirkung:"Kampfschiffe +12 % Angriff",
+    vorkommenAuf:["karg","asteroid","vulkan","fels"], maxStufen:3,
+  },
+  deuterium: {
+    name:"Deuterium", farbe:"#7fc4e8",
+    beschreibung:"Schwerer Wasserstoff, der Fusionstriebwerke speist.",
+    wirkung:"Flüge 18 % schneller",
+    vorkommenAuf:["gasriese","eis","wasserstoffwolke","mond"], maxStufen:3,
+  },
+  xenoflora: {
+    name:"Xenoflora", farbe:"#8fd18a",
+    beschreibung:"Fremdartige Pflanzenwelt mit erstaunlicher Nährkraft.",
+    wirkung:"Bevölkerung wächst 25 % schneller, Nahrungsbedarf −10 %",
+    vorkommenAuf:["dschungel","ozean","tundra"], maxStufen:2,
+  },
+  kryokristalle: {
+    name:"Kryokristalle", farbe:"#a8d8f0",
+    beschreibung:"Natürlich gewachsene Kühlgitter, unersetzlich für Rechenwerke.",
+    wirkung:"Forschung +15 %",
+    vorkommenAuf:["tundra","eis","mond","methanwolke"], maxStufen:3,
+  },
+  artefakte: {
+    name:"Artefakte", farbe:"#b48fe8",
+    beschreibung:"Hinterlassenschaften einer Kultur, die vor uns hier war.",
+    wirkung:"+40 Forschung je Stunde",
+    vorkommenAuf:["antike","karg","mond"], maxStufen:2,
+  },
+};
+const VORKOMMEN_CHANCE = 0.28;      // Anteil der passenden Welten mit Vorkommen
+
+/* ============================================================
+   0a3. ANOMALIEN
+   Ein Fundstück, das eine Sonde nebenbei entdeckt. Es wartet, bis
+   man Zeit hat — kein Ablaufdatum, kein Zeitdruck. Beim Öffnen
+   entscheidet ein kleines Geschicklichkeitsspiel über die Ausbeute.
+   ============================================================ */
+/* ============================================================
+   0a4. EREIGNISSE  (Etappe 28)
+   Jedes Ereignis hat zwei oder drei Wahlmöglichkeiten und eine Frist.
+   Wichtig für den Grundsatz: Läuft die Frist ab, wird die mit
+   `nichtstun` gekennzeichnete Möglichkeit gewählt. Sie ist immer
+   folgenlos oder leicht positiv — verpassen kostet den möglichen
+   Gewinn, niemals Substanz. Deshalb darf keine Wahl einen Verlust
+   erzwingen, den man nur durch Anwesenheit vermeiden kann.
+   ============================================================ */
+const EREIGNISSE = {
+  konvoi: {
+    name:"Havarierter Konvoi",
+    text:"Ein Handelskonvoi meldet einen Antriebsschaden am Rand eines Ihrer Systeme. "
+        +"Die Besatzung bittet um Ersatzteile.",
+    wahl:[
+      { text:"Ersatzteile schicken", hinweis:"Kostet Legierung, bringt Ansehen und Gegenleistung",
+        kosten:{legierung:400, silikat:300},
+        wirkung:(w)=>{ const p=zufallsPartei(); diploAendern(p,8);
+          spiel.res.kupfer += 900; return `Der Konvoi kommt frei. ${PARTEIEN[p].kurz} erkennt sich erkenntlich (+8 Beziehung, 900 Kupfer).`; } },
+      { text:"Bergungsrecht geltend machen", hinweis:"Sofort Rohstoffe, kostet Ansehen",
+        wirkung:()=>{ const p=zufallsPartei(); diploAendern(p,-12);
+          spiel.res.erz += 2200; spiel.res.legierung += 600;
+          return `Sie bergen die Ladung (2.200 Erz, 600 Legierung). ${PARTEIEN[p].kurz} vergisst das nicht (−12 Beziehung).`; } },
+      { text:"Nichts unternehmen", nichtstun:true, hinweis:"Ohne Folgen",
+        wirkung:()=>"Der Konvoi wird von anderer Seite geborgen. Nichts geschieht." },
+    ],
+  },
+  sonnensturm: {
+    name:"Sonnensturmwarnung",
+    text:"Ein Strahlungsausbruch zieht auf. Wer seine Anlagen herunterfährt, verliert Ertrag — "
+        +"wer sie laufen lässt, riskiert Ausfälle.",
+    wahl:[
+      { text:"Anlagen sichern", hinweis:"Kostet etwas Energie, dafür kein Risiko",
+        kosten:{energiezellen:800},
+        wirkung:()=>"Die Anlagen laufen gedrosselt durch den Sturm. Nichts geht verloren." },
+      { text:"Weiterlaufen lassen", hinweis:"Wette: mehr Ertrag oder Einbusse beim Silikat",
+        wirkung:()=>{ if(Math.random()<0.55){ spiel.res.energiezellen += 1400;
+            return "Der Sturm bleibt schwach — die Aufnehmer liefern sogar mehr (+1.400 Energiezellen)."; }
+          const weg = Math.floor(spiel.res.silikat*0.10);
+          spiel.res.silikat -= weg;
+          return `Überschläge in den Aufbereitern. ${z0(weg)} Silikat unbrauchbar geworden.`; } },
+      /* Diese Möglichkeit greift auch, wenn die Frist ungenutzt verstreicht.
+         Sie muss deshalb folgenlos sein: Wer nicht da war, darf den Gewinn
+         verpassen, aber nichts verlieren. Die Wette oben ist eine bewusste
+         Entscheidung und wird niemandem automatisch abgenommen. */
+      { text:"Drosseln und abwarten", nichtstun:true, hinweis:"Ohne Gewinn, ohne Verlust",
+        wirkung:()=>"Die Anlagen laufen gedrosselt. Der Sturm zieht folgenlos vorüber." },
+    ],
+  },
+  fluechtlinge: {
+    name:"Fremde Siedler",
+    text:"Ein Verband zivilier Schiffe bittet um Aufnahme. Sie bringen Arbeitskraft mit, "
+        +"aber auch Bedarf.",
+    wahl:[
+      { text:"Aufnehmen", hinweis:"Kostet Nahrung, bringt Bevölkerung",
+        kosten:{nahrung:1500},
+        wirkung:()=>{ const ids=Object.keys(spiel.kolonien); if(!ids.length) return "Es gibt keine Kolonie, die sie aufnehmen könnte.";
+          const k=spiel.kolonien[ids[0]]; k.bev += 3;
+          return "Drei Familien lassen sich nieder (+3 Bevölkerung)."; } },
+      { text:"Weiterschicken", nichtstun:true, hinweis:"Ohne Folgen",
+        wirkung:()=>"Der Verband zieht weiter. Nichts geschieht." },
+    ],
+  },
+  ueberlaeufer: {
+    name:"Überläufer",
+    text:"Eine Besatzung eines Piratenverbands bietet an, mit ihrem Schiff überzulaufen — "
+        +"gegen Versorgung.",
+    wahl:[
+      { text:"Auf den Handel eingehen", hinweis:"Kostet Vorräte, bringt ein Bruchstück",
+        kosten:{nahrung:600, energiezellen:900},
+        wirkung:()=>{ const f=fragmentZiehen(null);
+          return f ? "Sie bringen Baupläne mit. "+fragmentText(f) : "Sie bringen wenig Brauchbares mit."; } },
+      { text:"Ablehnen", nichtstun:true, hinweis:"Ohne Folgen",
+        wirkung:()=>"Sie ziehen ab. Nichts geschieht." },
+    ],
+  },
+  fund: {
+    name:"Meldung aus dem Aussendienst",
+    text:"Eine Vermessungsmannschaft meldet auffällige Signaturen in einem erkundeten System.",
+    wahl:[
+      { text:"Nachsehen lassen", hinweis:"Kostet Energie, bringt vermutlich Fundstücke",
+        kosten:{energiezellen:600},
+        wirkung:()=>{ const eig=Object.keys(spiel.kolonien).map(id=>spiel.objekte[id].systemId);
+          if(!eig.length) return "Es gibt kein eigenes System, in dem nachgesehen werden könnte.";
+          spiel.anomalien = spiel.anomalien || [];
+          const arten=Object.keys(ANOMALIEN);
+          spiel.anomalien.push({ id:Date.now()+Math.floor(Math.random()*1000),
+            art:arten[Math.floor(Math.random()*arten.length)], systemId:eig[0],
+            gefunden:Date.now(), erledigt:false });
+          return "Ein Fundstück wurde geborgen und wartet auf Untersuchung."; } },
+      { text:"Auf sich beruhen lassen", nichtstun:true, hinweis:"Ohne Folgen",
+        wirkung:()=>"Die Signaturen verlaufen sich. Nichts geschieht." },
+    ],
+  },
+};
+
+/* ============================================================
+   0a5. RESSOURCENCLUSTER  (Etappe 29)
+   `ergiebig` steuert Vorrat und Förderrate, `standzeit` die Lebensdauer.
+   Bewusst gegenläufig: Was viel bringt, steht kürzer. Damit lohnt es sich,
+   reiche Cluster zuerst anzugehen — eine Entscheidung, keine Reaktionszeit.
+   ============================================================ */
+/* ============================================================
+   0a5b. SELTENE STOFFE  (Etappe 30)
+   Die dritte Kategorie neben Grundstoffen und strategischen Vorkommen:
+   Man gibt sie aus, aber Kolonien können sie nicht herstellen. Sie kommen
+   ausschliesslich aus Clustern — und damit werden Cluster von einer
+   Zusatzeinnahme zu etwas strukturell Notwendigem, ohne die Wirtschaft
+   zu ersetzen: Man baut damit keine Distrikte, nur Spitzenschiffe.
+
+   Sie stehen bewusst NICHT im Hauptstreifen, sondern in einer eigenen
+   schmalen Zeile mit Symbolen — acht Kacheln plus Forschung sind bereits
+   die Grenze des Lesbaren.
+   ============================================================ */
+const SELTEN = {
+  neutronium:    { name:"Neutronium", farbe:"#9fb4d9",
+                   zweck:"Schwere Panzerung. Ohne Neutronium endet der Schiffbau bei der Kreuzerklasse.",
+                   symbol:`<circle cx="0" cy="0" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                           <circle cx="0" cy="0" r="1.8" fill="currentColor"/>` },
+  antimaterie:   { name:"Antimaterie", farbe:"#d98fd9",
+                   zweck:"Antrieb. Alles, was ungewöhnlich schnell oder weit fliegt.",
+                   symbol:`<path d="M-5 0 A5 5 0 0 1 5 0" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                           <path d="M5 0 A5 5 0 0 1 -5 0" fill="none" stroke="currentColor"
+                             stroke-width="1.6" stroke-dasharray="1.6 1.6"/>` },
+  phasenkristall:{ name:"Phasenkristall", farbe:"#7fd9c8",
+                   zweck:"Exotische Bauarten. Macht erbeutete Blaupausen erst baubar.",
+                   symbol:`<path d="M0 -5.5 L4.5 0 L0 5.5 L-4.5 0 Z" fill="none"
+                             stroke="currentColor" stroke-width="1.6"/>
+                           <path d="M0 -5.5 L0 5.5" stroke="currentColor" stroke-width="0.9"/>` },
+};
+
+const CLUSTER_ARTEN = {
+  erzfeld: { name:"Erzfeld", farbe:"#c98f5a",
+    text:"Ein Schwarm metallreicher Brocken. Viel Masse, geringer Wert.",
+    vorrat:[26000, 42000], standzeit:6*24*3600,
+    gibt:{ erz:0.65, silikat:0.35 } },
+  eiskomet: { name:"Eiskometenschwarm", farbe:"#7fc8d9",
+    text:"Gefrorene Flüchtigstoffe auf langer Bahn.",
+    vorrat:[14000, 24000], standzeit:5*24*3600,
+    gibt:{ wasserstoff:0.55, nahrung:0.45 } },
+  gaswolke: { name:"Ionisierte Gaswolke", farbe:"#b98fd9",
+    text:"Geladenes Plasma, das sich unmittelbar in Zellen fassen lässt.",
+    vorrat:[10000, 18000], standzeit:4*24*3600,
+    gibt:{ energiezellen:0.7, kohlenstoff:0.3 } },
+  truemmerfeld: { name:"Trümmerfeld", farbe:"#d9a05a",
+    text:"Reste eines Gefechts. Verwertbare Legierung — und manchmal mehr.",
+    vorrat:[5000, 9000], standzeit:3*24*3600,
+    gibt:{ legierung:0.6, kupfer:0.4 }, fragmentChance:0.35 },
+
+  // --- Etappe 30: weitere gewöhnliche Arten ---
+  sonnenwind: { name:"Sonnenwindfeld", farbe:"#f5c76e",
+    text:"Geladener Teilchenstrom dicht am Stern. Ergiebig, aber flüchtig.",
+    vorrat:[16000, 26000], standzeit:2*24*3600,
+    gibt:{ energiezellen:1.0 } },
+  kometenkern: { name:"Kometenkern", farbe:"#9fd9e8",
+    text:"Ein einzelner grosser Kern am Rand des Systems. Lange Anfahrt.",
+    vorrat:[22000, 34000], standzeit:6*24*3600,
+    gibt:{ wasserstoff:0.4, nahrung:0.4, kohlenstoff:0.2 }, anfahrt:1.6 },
+  wrack: { name:"Havariertes Wrack", farbe:"#c9a0d9",
+    text:"Ein grosses Schiff, aufgegeben und ausgekühlt. Wenig Masse, viel Wissen.",
+    vorrat:[2600, 4200], standzeit:3*24*3600,
+    gibt:{ legierung:0.5, kupfer:0.5 }, fragmentChance:0.6 },
+  geode: { name:"Kristallgeode", farbe:"#b9c9d9",
+    text:"Aufgebrochener Asteroid mit gewachsenen Kristallschichten.",
+    vorrat:[18000, 28000], standzeit:5*24*3600,
+    gibt:{ silikat:0.6, kupfer:0.4 } },
+
+  /* --- Etappe 30: seltene Stoffe ---
+     Sie erscheinen nur bei bestimmten Sterntypen (siehe STERNE.wirkung).
+     Damit bekommt die Galaxiekarte eine Geografie: Man sucht nicht mehr
+     irgendein System, sondern den Neutronenstern. */
+  neutroniumader: { name:"Neutroniumader", farbe:"#9fb4d9", selten:"neutronium",
+    text:"Ausgeworfene entartete Materie. Nur nahe eines Neutronensterns stabil.",
+    vorrat:[60, 130], standzeit:4*24*3600,
+    gibt:{}, gibtSelten:{ neutronium:1.0 } },
+  antimateriewolke: { name:"Antimateriewolke", farbe:"#d98fd9", selten:"antimaterie",
+    text:"In starken Magnetfeldern eingefangene Antiteilchen.",
+    vorrat:[40, 90], standzeit:3*24*3600,
+    gibt:{}, gibtSelten:{ antimaterie:1.0 } },
+  kristallfeld: { name:"Phasenkristallfeld", farbe:"#7fd9c8", selten:"phasenkristall",
+    text:"Im Strahlungsfeld gewachsene Kristalle mit ungewöhnlichen Eigenschaften.",
+    vorrat:[50, 110], standzeit:4*24*3600,
+    gibt:{}, gibtSelten:{ phasenkristall:1.0 } },
+};
+
+const ANOMALIEN = {
+  frachtwrack: { name:"Treibendes Wrack", farbe:"#d98b6a",
+    text:"Ein Frachter, seit Jahrzehnten steuerlos. Die Laderäume sind versiegelt.",
+    aufgabe:"Schleusenkopplung ausrichten",
+    beute:{ erz:1400, silikat:900, kupfer:180 } },
+  sondenrelikt:{ name:"Fremde Sonde", farbe:"#8fb8e8",
+    text:"Eine Sonde unbekannter Bauart, noch schwach sendend. Ihr Speicher ist verschlüsselt.",
+    aufgabe:"Trägerfrequenz treffen",
+    beute:{ forschung:900 } },
+  gasblase:   { name:"Druckblase", farbe:"#7fc4e8",
+    text:"Eine eingeschlossene Gastasche unter enormem Druck. Anzapfen will gekonnt sein.",
+    aufgabe:"Ventil im richtigen Moment öffnen",
+    beute:{ wasserstoff:2200, kohlenstoff:1400 } },
+  legierdepot:{ name:"Verlassenes Depot", farbe:"#cbaf66",
+    text:"Ein Munitionsdepot ohne Besitzer. Die Verriegelung ist noch scharf.",
+    aufgabe:"Schliessfolge durchbrechen",
+    beute:{ legierung:700, kupfer:300 } },
+  sternwarte: { name:"Alte Sternwarte", farbe:"#b48fe8",
+    text:"Ein Beobachtungsposten, den jemand fluchtartig verlassen hat. Die Aufzeichnungen laufen noch.",
+    aufgabe:"Auslesekopf ausrichten",
+    beute:{ forschung:600, silikat:600 } },
+};
+const ANOMALIE_CHANCE = 0.38;      // Wahrscheinlichkeit je Erkundungsflug
+const ANOMALIE_RUNDEN = 3;         // Versuche je Fundstück
+
+/* ============================================================
    0c. STERNTYPEN
    Vorerst rein optisch: Jedes System bekommt beim Erzeugen einen
    Typ mit gleicher Wahrscheinlichkeit. Die Felder "wirkung" sind
    schon angelegt, werden aber noch nirgends ausgewertet — dort
    kommen später Einflüsse auf Planetenverteilung und Erträge hin.
    ============================================================ */
+/* Das Feld `wirkung` war seit der ersten Etappe angelegt und leer.
+   Seit Etappe 30 steuert es, welche Ressourcencluster ein System
+   hervorbringen kann — und `selten` nennt den Stoff, den es als einziges
+   liefert. Damit wird die Galaxiekarte zur Landkarte: Man sucht nicht
+   irgendein System, sondern den Neutronenstern. */
 const STERNE = {
   gelber_stern:    { name:"Gelber Hauptreihenstern", bild:"bilder/stern-gelber-stern.webp",
                      farbe:"#f5d76e", groesse:1.00,
-                     beschreibung:"Stabil und mittelwarm — der Normalfall.", wirkung:{} },
+                     beschreibung:"Stabil und mittelwarm — der Normalfall.",
+                     wirkung:{ cluster:["erzfeld","geode","kometenkern"] } },
   oranger_riese:   { name:"Oranger Riese", bild:"bilder/stern-oranger-riese.webp",
                      farbe:"#e08a3c", groesse:1.35,
-                     beschreibung:"Aufgeblähter alter Stern mit weiter Hülle.", wirkung:{} },
+                     beschreibung:"Aufgeblähter alter Stern mit weiter Hülle.",
+                     wirkung:{ cluster:["erzfeld","gaswolke","sonnenwind"] } },
   roter_zwerg:     { name:"Roter Zwerg", bild:"bilder/stern-roter-zwerg.webp",
                      farbe:"#d4553a", groesse:0.70,
-                     beschreibung:"Klein, kühl und langlebig. Der häufigste Sterntyp.", wirkung:{} },
+                     beschreibung:"Klein, kühl und langlebig. Der häufigste Sterntyp.",
+                     wirkung:{ cluster:["eiskomet","kometenkern","geode"] } },
   roter_ueberriese:{ name:"Roter Überriese", bild:"bilder/stern-roter-ueberriese.webp",
                      farbe:"#a83c28", groesse:1.60,
-                     beschreibung:"Gewaltig und instabil, dem Ende nahe.", wirkung:{} },
+                     beschreibung:"Gewaltig und instabil, dem Ende nahe.",
+                     wirkung:{ cluster:["sonnenwind","gaswolke","truemmerfeld"] } },
   blauer_riese:    { name:"Blauer Riese", bild:"bilder/stern-blauer-riese.webp",
                      farbe:"#8fc4f5", groesse:1.30,
-                     beschreibung:"Heiß, hell und kurzlebig. Strahlt gewaltig.", wirkung:{} },
+                     beschreibung:"Heiß, hell und kurzlebig. Strahlt gewaltig.",
+                     wirkung:{ cluster:["sonnenwind","gaswolke"], selten:"antimateriewolke" } },
   weisser_zwerg:   { name:"Weißer Zwerg", bild:"bilder/stern-weisser-zwerg.webp",
                      farbe:"#dce8f5", groesse:0.45,
-                     beschreibung:"Ausgebrannter Kern, dicht und winzig.", wirkung:{} },
+                     beschreibung:"Ausgebrannter Kern, dicht und winzig.",
+                     wirkung:{ cluster:["geode","truemmerfeld"], selten:"kristallfeld" } },
   brauner_zwerg:   { name:"Brauner Zwerg", bild:"bilder/stern-brauner-zwerg.webp",
                      farbe:"#7a4a35", groesse:0.60,
-                     beschreibung:"Ein verhinderter Stern. Glimmt nur.", wirkung:{} },
+                     beschreibung:"Ein verhinderter Stern. Glimmt nur.",
+                     wirkung:{ cluster:["eiskomet","kometenkern","wrack"] } },
   neutronenstern:  { name:"Neutronenstern", bild:"bilder/stern-neutronenstern.webp",
                      farbe:"#c9a3f0", groesse:0.55,
-                     beschreibung:"Überrest einer Sternexplosion. Unfassbar dicht.", wirkung:{} },
+                     beschreibung:"Überrest einer Sternexplosion. Unfassbar dicht.",
+                     wirkung:{ cluster:["truemmerfeld","wrack"], selten:"neutroniumader" } },
 };
 
 /* ============================================================
@@ -449,6 +914,24 @@ const AUFGABEN = {
   kreuzer_flotte:  { name:"Schwere Linie", gruppe:"Militär", punkte:70,
                      beschreibung:"Halte acht Kreuzer bereit.",
                      ziel:8, pruef:()=>spiel.schiffe.kreuzer||0 },
+  erste_landung:   { name:"Brückenkopf", gruppe:"Militär", punkte:80,
+                     beschreibung:"Erobere eine fremde Welt im Bodenkampf.",
+                     ziel:1, pruef:()=>(spiel.berichte||[])
+                       .filter(b=>b.art==="invasion" && b.text?.includes("erobert")).length },
+  drei_landungen:  { name:"Statthalter", gruppe:"Militär", punkte:150,
+                     beschreibung:"Erobere drei fremde Welten.",
+                     ziel:3, pruef:()=>(spiel.berichte||[])
+                       .filter(b=>b.art==="invasion" && b.text?.includes("erobert")).length },
+  erste_blaupause: { name:"Nachbau", gruppe:"Militär", punkte:70,
+                     beschreibung:"Vervollständige eine erbeutete Blaupause.",
+                     ziel:1, pruef:()=>Object.keys(BAUARTEN).filter(bauartFertig).length },
+  alle_verbaende:  { name:"Aufklärung", gruppe:"Militär", punkte:50,
+                     beschreibung:"Begegne allen vier Piratenverbänden.",
+                     ziel:4, pruef:()=>Object.keys(spiel.gesehen||{}).length },
+  stehendes_heer:  { name:"Stehendes Heer", gruppe:"Militär", punkte:60,
+                     beschreibung:"Halte 40 Truppenverbände gleichzeitig bereit.",
+                     ziel:40, pruef:()=>Object.keys(TRUPPEN)
+                       .reduce((a,t)=>a+(spiel.truppen?.[t]||0),0) },
   galaxie_frei:    { name:"Befriedet", gruppe:"Militär", punkte:120,
                      beschreibung:"Räume alle Piratenlager der Galaxie.",
                      ziel:1, pruef:()=>spiel.systeme.every(x=>!x.piraten) ? 1 : 0 },
@@ -478,6 +961,32 @@ const SCHIFF_BILDER = {
   jaeger:        "bilder/schiff-jaeger.webp",
   korvette:      "",
   kreuzer:       "",
+  landungsschiff:"",
+  foerderschiff: "",
+  zerstoerer:    "",
+  flakschiff:    "",
+  koeder:        "",
+  bollwerk:      "",
+  drohnenboot:   "",
+  thermalbohrer: "",
+  raketenfregatte:"",
+  spiegelkreuzer:"",
+  nanitensiphon: "",
+  tarnkorsar:    "",
+  fernartillerie:"",
+  staffeltraeger:"",
+  ionenstoerer:  "",
+  logistiktender:"",
+  befehlsgoliath:"",
+  fregatte:      "",
+  schlachtschiff:"",
+  bergungsschlepper:"",
+  schrottjaeger: "",
+  wachfregatte:  "",
+  bastionsschiff:"",
+  wandelrumpf:   "",
+  gittertraeger: "",
+  blockadebrecher:"",
 };
 
 /* ============================================================
@@ -491,10 +1000,63 @@ const RES_NAMEN = {
 };
 
 /* ============================================================
+   1b. RESSOURCENSYMBOLE  (Etappe 31)
+   Inline gezeichnet statt als Bilddateien: keine zusätzlichen Dateien,
+   bei jeder Grösse scharf, und die Farbe kommt über `currentColor` aus
+   der jeweiligen Ressourcenfarbe. Damit passt eine Ressource in ein
+   Drittel der bisherigen Kachelbreite — Voraussetzung dafür, dass
+   künftig mehr als acht Stoffe nebeneinander lesbar bleiben.
+
+   Jedes Zeichen ist auf einen Blick unterscheidbar gebaut: eigene
+   Grundform, keine zwei ähnlichen Umrisse nebeneinander.
+   ============================================================ */
+const RES_SYMBOL = {
+  // Blitz — Energie
+  energiezellen:`<path d="M1.5 -6.5 L-3.5 0.5 L-0.5 0.5 L-1.5 6.5 L3.5 -0.5 L0.5 -0.5 Z"
+                   fill="currentColor"/>`,
+  // Erzbrocken — unregelmässiger Klumpen
+  erz:`<path d="M-5 1 L-3.5 -4 L1 -5.5 L5 -2 L4 3.5 L-1 5.5 Z" fill="currentColor"/>`,
+  // Silikat — Kristallsäulen
+  silikat:`<path d="M-4.5 5.5 L-4.5 -1.5 L-2 -5.5 L0.5 -1.5 L0.5 5.5 Z" fill="currentColor"/>
+           <path d="M1.5 5.5 L1.5 -0.5 L3.5 -3.5 L5 -0.5 L5 5.5 Z" fill="currentColor"
+             opacity="0.65"/>`,
+  // Kupfer — Leiterbahn mit Knoten
+  kupfer:`<path d="M-6 -3 L0 -3 L0 3 L6 3" fill="none" stroke="currentColor" stroke-width="1.7"/>
+          <circle cx="-6" cy="-3" r="1.7" fill="currentColor"/>
+          <circle cx="6" cy="3" r="1.7" fill="currentColor"/>`,
+  // Nahrung — Ähre
+  nahrung:`<path d="M0 6.5 L0 -2" stroke="currentColor" stroke-width="1.5"/>
+           <path d="M0 -2 C-3.5 -3 -4 -5.5 0 -6.5 C4 -5.5 3.5 -3 0 -2 Z" fill="currentColor"/>
+           <path d="M0 1.5 C-3 0.5 -3.5 -1.5 0 -2" fill="currentColor" opacity="0.6"/>
+           <path d="M0 1.5 C3 0.5 3.5 -1.5 0 -2" fill="currentColor" opacity="0.6"/>`,
+  // Wasserstoff — Tropfen mit Kern
+  wasserstoff:`<path d="M0 -6.5 C3.5 -2 5 0 5 2 A5 5 0 0 1 -5 2 C-5 0 -3.5 -2 0 -6.5 Z"
+                 fill="none" stroke="currentColor" stroke-width="1.6"/>
+               <circle cx="0" cy="2" r="1.6" fill="currentColor"/>`,
+  // Kohlenstoff — Sechsring
+  kohlenstoff:`<path d="M0 -6 L5.2 -3 L5.2 3 L0 6 L-5.2 3 L-5.2 -3 Z" fill="none"
+                 stroke="currentColor" stroke-width="1.7"/>`,
+  // Legierung — gestapelte Barren
+  legierung:`<path d="M-6 1 L-3 -2 L4 -2 L6 1 L2 1 Z" fill="currentColor"/>
+             <path d="M-6 5 L-3 2 L4 2 L6 5 Z" fill="currentColor" opacity="0.7"/>`,
+  // Forschung — Zirkel/Strahlen aus einem Punkt
+  forschung:`<circle cx="0" cy="0" r="2.2" fill="currentColor"/>
+             <path d="M0 -6.5 L0 -3.6 M0 3.6 L0 6.5 M-6.5 0 L-3.6 0 M3.6 0 L6.5 0
+                      M-4.6 -4.6 L-2.6 -2.6 M2.6 2.6 L4.6 4.6
+                      M4.6 -4.6 L2.6 -2.6 M-2.6 2.6 L-4.6 4.6"
+               stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>`,
+};
+function resSymbol(r, groesse){
+  const g = groesse || 15;
+  return `<svg width="${g}" height="${g}" viewBox="-8 -8 16 16" class="res-sym"
+    aria-hidden="true">${RES_SYMBOL[r]||""}</svg>`;
+}
+
+/* ============================================================
    2. DISTRIKTE — keine Stufen. Mehr davon bauen, nicht ausbauen.
    ============================================================ */
 const DISTRIKTE = {
-  solarfarm:      { name:"Solarfarm",      gruppe:"allgemein", produziert:{energiezellen:150}, kosten:{erz:50, silikat:25} },
+  solarfarm:      { name:"Solarfarm",      gruppe:"allgemein", produziert:{energiezellen:150}, kosten:{erz:25, silikat:15} },
   eisenmine:      { name:"Eisenmine",      gruppe:"allgemein", produziert:{erz:100},           kosten:{erz:100, silikat:20} },
   silikatmine:    { name:"Silikatmine",    gruppe:"allgemein", produziert:{silikat:70},        kosten:{erz:50, silikat:70} },
   kupfermine:     { name:"Kupfermine",     gruppe:"allgemein", produziert:{kupfer:50},         kosten:{erz:150, silikat:100} },
@@ -531,6 +1093,9 @@ const GEBAEUDE = {
   habitatmodul: { name:"Habitatmodul", maxLevel:10, startLevel:0,
                   beschreibung:"Druckkabinen im Vakuum. Der einzige Wohnraum ausserhalb von Planeten.",
                   wohnraum:6, kosten:{energiezellen:200, erz:150, silikat:100, kupfer:40} },
+  kaserne:      { name:"Kaserne", maxLevel:10, startLevel:0,
+                  beschreibung:"Bildet Bodentruppen aus und stellt zugleich die eigene Garnison. Nur auf Planeten.",
+                  garnison:8, kosten:{energiezellen:250, erz:350, silikat:150, kupfer:60} },
   werft:        { name:"Werft", maxLevel:10, startLevel:0,
                   beschreibung:"Baut Schiffe. Je höher die Stufe, desto schneller. Nur auf Planeten.",
                   kosten:{energiezellen:300, erz:400, silikat:200, kupfer:100} },
@@ -542,24 +1107,130 @@ const GEBAEUDE = {
 /* ============================================================
    3c. PIRATENVERBÄNDE — jeder Typ kämpft anders
    ============================================================ */
+/* ============================================================
+   3c. DIE VIER VERBÄNDE  (Etappe 24)
+   Jeder Verband ist gegen eine ANDERE Spielweise unbequem — nicht
+   nur zahlenmässig anders. Wer nur eine Flottenmischung beherrscht,
+   kommt bei einem von ihnen nicht weiter.
+   ============================================================ */
 const PIRATEN_ARTEN = {
-  schmuggler: { name:"Schmugglerring",
-                beschreibung:"Viele kleine, schnelle Schiffe. Reich, aber schlecht gepanzert.",
-                mischung:{ jaeger:0.75, korvette:0.25, kreuzer:0 },
-                beute:1.4, wachstum:0.06 },
-  freibeuter: { name:"Freibeuterflotte",
-                beschreibung:"Ausgewogener Verband aus Jägern und Korvetten.",
-                mischung:{ jaeger:0.45, korvette:0.45, kreuzer:0.10 },
-                beute:1.0, wachstum:0.09 },
-  kriegsherr: { name:"Kriegsherr",
-                beschreibung:"Wenige, aber schwere Schiffe. Harte Nuss.",
-                mischung:{ jaeger:0.15, korvette:0.35, kreuzer:0.50 },
-                beute:0.8, wachstum:0.12 },
-  festung:    { name:"Piratenfestung",
-                beschreibung:"Verschanzt hinter Geschützstellungen. Wächst schnell und schickt Überfälle aus.",
-                mischung:{ jaeger:0.30, korvette:0.40, kreuzer:0.30 },
-                beute:1.6, wachstum:0.18, panzerbonus:1.5 },
+  aschefahrer: { name:"Aschefahrer", kurz:"Aschefahrer",
+                beschreibung:"Wracksammler. Zahlreich und zusammengeflickt — sie bauen nichts, sie setzen zusammen.",
+                geschichte:"Reste einer Bergungsflotte, die nach dem Zusammenbruch der alten "
+                          +"Handelswege nie zurückgerufen wurde. Sie haben aufgehört zu warten.",
+                antwort:"Verlangt Masse. Wenige schwere Schiffe reiben sich auf.",
+                mischung:{ jaeger:0.70, zerstoerer:0.10, korvette:0.20, fregatte:0, kreuzer:0, schlachtschiff:0 },
+                beute:1.4, wachstum:0.06, mengenBonus:1.35,
+                staerkeFaktor:0.85, verhalten:"truemmer" },
+  tiefenwache:{ name:"Tiefenwache", kurz:"Tiefenwache",
+                beschreibung:"Wenige, aber schwere Schiffe in disziplinierter Aufstellung. Kündigt Angriffe an.",
+                geschichte:"Eine ehemalige Grenzflotte, die ihren Auftrag nie beendet hat. Sie halten "
+                          +"sich nicht für Piraten, sondern für die letzte rechtmässige Ordnung.",
+                antwort:"Verlangt Vorbereitung. Gewinnbar, aber nicht spontan.",
+                mischung:{ jaeger:0, zerstoerer:0.15, korvette:0.15, fregatte:0.30, kreuzer:0.25, schlachtschiff:0.15 },
+                beute:0.8, wachstum:0.12, panzerbonus:1.35,
+                staerkeFaktor:1.15, verhalten:"ankuendigung",
+                mindestKolonie:6 },
+  schwarm:    { name:"Der Schwarm", kurz:"Schwarm",
+                beschreibung:"Kein Anführer, kein Muster. Die Zusammensetzung ist bei jedem Zusammentreffen anders.",
+                geschichte:"Herkunft unklar. Möglicherweise ist niemand mehr an Bord. "
+                          +"Ihre Flugbahnen ergeben keinen Sinn.",
+                antwort:"Verlangt Ausgewogenheit. Der einzige Verband, gegen den eine "
+                       +"gemischte Flotte besser ist als eine spezialisierte.",
+                mischung:null,  // wird bei jedem Verband neu gewürfelt
+                beute:1.1, wachstum:0.09, staerkeFaktor:1.0, verhalten:"wechselnd" },
+  kartell:    { name:"Kartellflotte", kurz:"Kartell",
+                beschreibung:"Geschäftsleute mit Kanonen. Sie greifen nicht an — sie bieten an.",
+                geschichte:"Aus den Handelswegen hervorgegangen, die sie heute kontrollieren. "
+                          +"Für sie ist man kein Feind, sondern ein möglicher Kunde.",
+                antwort:"Verlangt eine Rechnung, keine Schlacht. Wer nicht zahlt, verliert nichts.",
+                mischung:{ jaeger:0.20, zerstoerer:0.20, korvette:0.25, fregatte:0.25, kreuzer:0.10, schlachtschiff:0 },
+                beute:1.6, wachstum:0.05, staerkeFaktor:0.9, verhalten:"angebot" },
 };
+
+/* Geleitangebot der Kartellflotte — ein Angebot, keine Erpressung.
+   Wer nicht zahlt, verliert nichts; das Angebot läuft aus und kommt
+   später wieder. Damit bleibt es dauerhaft eine Abwägung, statt nach
+   kurzer Zeit zur Routine zu werden. */
+/* Zielstärke je Stärkepunkt eines Lagers. Über diese Schraube wird die
+   Gefährlichkeit aller Verbände gemeinsam eingestellt. */
+const PIRAT_STAERKE_JE_PUNKT = 95;
+
+const GELEIT_LAUFZEIT   = 10*24*3600;  // Sekunden Spielzeit
+const GELEIT_PAUSE      = 6*24*3600;   // Mindestabstand zwischen zwei Angeboten
+const GELEIT_KURSBONUS  = 0.30;        // bessere Handelskurse, solange aktiv
+const GELEIT_FRAGMENT_P = 0.12;        // Fragmentchance je Handelsabschluss
+
+/* ============================================================
+   3d. TRUPPENGATTUNGEN
+   Truppen fliegen nicht selbst. Sie brauchen Landungsschiffe.
+   Das ist die eigentliche Bremse einer Invasion: Man braucht
+   Flotte für den Orbit UND Transport UND ausgebildete Truppen.
+   ============================================================ */
+const TRUPPEN = {
+  infanterie: { name:"Infanterie", bauzeit:45, angriff:12, panzerung:8,
+                beschreibung:"Billig und zahlreich. Hält Boden, den andere genommen haben.",
+                kosten:{energiezellen:120, erz:150, nahrung:200, legierung:20} },
+  panzer:     { name:"Panzerverband", bauzeit:130, angriff:50, panzerung:45,
+                beschreibung:"Bricht Stellungen auf. Teuer und schwer zu ersetzen.",
+                kosten:{energiezellen:400, erz:600, silikat:250, kupfer:60, legierung:160} },
+  artillerie: { name:"Artillerie", bauzeit:110, angriff:70, panzerung:18,
+                beschreibung:"Schlägt aus der Ferne zu. Wehrlos, sobald Infanterie sie erreicht.",
+                kosten:{energiezellen:350, erz:400, silikat:400, kupfer:120, legierung:120} },
+};
+
+/* ============================================================
+   3e. BEUTESCHIFFE  (Etappe 26)
+   Erbeutete Bauarten der Piratenverbände. Jede bricht eine Regel,
+   die für die Standardflotte gilt — und zahlt dafür einen Preis.
+   Nie ein rundum besseres Standardschiff; das wäre nur eine Stufe.
+   Die Fragmentzahl richtet sich nach der Grösse der Bauart.
+   ============================================================ */
+const BAUARTEN = {
+  bergungsschlepper:{ verband:"aschefahrer", teile:5,
+      name:"Bergungsschlepper",
+      kann:"Bringt aus jedem Gefecht zusätzliche Beute zurück — und mit etwas Glück ein Fragment.",
+      kannNicht:"Unbewaffnet. Fällt als erstes unter Beschuss." },
+  schrottjaeger:    { verband:"aschefahrer", teile:3,
+      name:"Schrottjäger",
+      kann:"Kontert Kreuzer wie ein Jäger — und zusätzlich Korvetten. Steht auf zwei Seiten des Dreiecks.",
+      kannNicht:"Materialermüdung: verliert nach jedem Gefecht einen Teil seines Bestands, auch bei Sieg." },
+  wachfregatte:     { verband:"tiefenwache", teile:5,
+      name:"Wachfregatte",
+      kann:"Geht nicht verloren, sondern kehrt angeschlagen heim und wird billig instand gesetzt.",
+      kannNicht:"Sehr langsam. Bremst jeden Verband aus, in dem sie mitfliegt." },
+  bastionsschiff:   { verband:"tiefenwache", teile:8,
+      name:"Bastionsschiff",
+      kann:"Kämpft im Orbit und stellt bei Invasionen Truppen, die den Geländevorteil ignorieren.",
+      kannNicht:"Enorm teuer. Es kann immer nur ein einziges existieren." },
+  wandelrumpf:      { verband:"schwarm", teile:6,
+      name:"Wandelrumpf",
+      kann:"Im Schnitt gut gegen alles — die Konterrolle wechselt zu Beginn jedes Gefechts.",
+      kannNicht:"Unplanbar. Im Einzelfall völlig unbrauchbar." },
+  gittertraeger:    { verband:"schwarm", teile:8,
+      name:"Gitterträger",
+      kann:"Verkürzt die Flugzeit des gesamten Verbands erheblich.",
+      kannNicht:"Wehrlos im Gefecht." },
+  blockadebrecher:  { verband:"kartell", teile:4,
+      name:"Blockadebrecher",
+      kann:"Frachtmissionen bringen deutlich mehr ein und verlaufen ohne Zwischenfall.",
+      kannNicht:"Kämpft überhaupt nicht." },
+};
+
+/* Markenpreis steigt mit der Grösse — sonst kauft man sich die
+   8-Teile-Bauart genauso leicht zusammen wie die 3-Teile-Bauart
+   und die Staffelung wäre wirkungslos. */
+const MARKEN_PREIS = { 3:6, 4:6, 5:10, 6:10, 8:16 };
+function markenPreis(bauart){ return MARKEN_PREIS[BAUARTEN[bauart].teile] || 10; }
+
+// Fundwahrscheinlichkeiten. Fragmente entstehen NUR durch Taten, nie durch Zeit.
+const FRAGMENT_P = { gefecht:0.35, lager:0.85, truemmer:0.45, anomalie:0.15, antike:1.0 };
+const SCHLEPPER_FRAGMENT_P = 0.20;   // Zusatzchance je Bergungsschlepper im Verband
+const SCHLEPPER_BEUTE = 0.25;        // Zusatzbeute je Schlepper
+const SCHROTT_VERSCHLEISS = 0.12;    // Anteil, den der Schrottjäger nach jedem Gefecht verliert
+const WACHFREGATTE_REPARATUR = 0.25; // Anteil der Baukosten für die Instandsetzung
+const GITTER_FLUGBONUS = 0.35;       // so viel kürzer fliegt ein Verband mit Gitterträger
+const BLOCKADE_BONUS = 0.45;         // Mehrertrag bei Frachtmissionen
 
 const SCHIFFE = {
   sonde:        { name:"Sonde", rolle:"Erkundung", bauzeit:40,
@@ -571,15 +1242,134 @@ const SCHIFFE = {
   frachter:     { name:"Frachter", rolle:"Logistik", bauzeit:90, kapazitaet:FRACHTER_KAPAZITAET,
                   beschreibung:"Sammelt Rohstoffe an unbesiedelten Objekten und bringt sie heim.",
                   kosten:{energiezellen:300, erz:400, silikat:200, legierung:80} },
-  jaeger:       { name:"Jäger", rolle:"Militär", bauzeit:60, angriff:15, panzerung:10,
+  jaeger:       { name:"Jäger", rolle:"Militär", bauzeit:60, angriff:15, panzerung:10, zone:"front",
                   beschreibung:"Billig und zahlreich.",
                   kosten:{energiezellen:200, erz:300, silikat:100, legierung:60} },
-  korvette:     { name:"Korvette", rolle:"Militär", bauzeit:140, angriff:45, panzerung:40,
+  korvette:     { name:"Korvette", rolle:"Militär", bauzeit:140, angriff:45, panzerung:40, zone:"front",
                   beschreibung:"Das Rückgrat jeder Flotte.",
                   kosten:{energiezellen:500, erz:700, silikat:300, kupfer:80, legierung:180} },
-  kreuzer:      { name:"Kreuzer", rolle:"Militär", bauzeit:340, angriff:140, panzerung:130,
+  kreuzer:      { name:"Kreuzer", rolle:"Militär", bauzeit:340, angriff:140, panzerung:130, zone:"mitte",
                   beschreibung:"Schwer, teuer, entscheidend.",
-                  kosten:{energiezellen:1200, erz:1800, silikat:800, kupfer:250, legierung:500} },
+                  // Etappe 27: teurer geworden — die mittlere Linie ist geschützt,
+                  // und dieser Schutz muss bezahlt werden, sonst ist sie doppelt im Vorteil
+                  kosten:{energiezellen:1560, erz:2340, silikat:1040, kupfer:325, legierung:650} },
+  // --- Etappe 25: schwere Ausführungen der drei Konterrollen ---
+  zerstoerer:   { name:"Zerstörer", rolle:"Militär", bauzeit:170, angriff:38, panzerung:34, zone:"mitte",
+                  beschreibung:"Schwerer Jäger. Gleiche Konterrolle, überlebt aber die ersten Runden.",
+                  kosten:{energiezellen:520, erz:760, silikat:280, kupfer:70, legierung:190} },
+  fregatte:     { name:"Fregatte", rolle:"Militär", bauzeit:230, angriff:82, panzerung:78, zone:"mitte",
+                  beschreibung:"Zwischen Korvette und Kreuzer. Billiger als ein Kreuzer, haltbarer als eine Korvette.",
+                  kosten:{energiezellen:985, erz:1415, silikat:625, kupfer:190, legierung:385} },
+  schlachtschiff:{name:"Schlachtschiff", rolle:"Militär", bauzeit:620, angriff:290, panzerung:280, zone:"hinten",
+                  beschreibung:"Das obere Ende der Standardflotte. Sehr teuer, sehr lange Bauzeit.",
+                  // Hintere Linie: am stärksten geschützt, deshalb am teuersten je Kampfkraft
+                  kosten:{energiezellen:3900, erz:5850, silikat:2550, kupfer:840, legierung:1650},
+                  seltenKosten:{ neutronium:40 } },
+  // --- Etappe 28: Sonderbauten. Jedes nutzt genau eine der drei
+  // Schrauben: Zielgewicht (Zone/Köder/Tarnung), Rundenfenster
+  // (Aufbau, Erstschlag) oder Zielwahl (Konterimmunität, Masse).
+  flakschiff:   { name:"Flakschiff", rolle:"Militär", bauzeit:95, angriff:22, panzerung:26,
+                  zone:"front", konterRolle:"korvette", doppelrolle:"jaeger",
+                  beschreibung:"Deckt zwei Seiten des Dreiecks ab, dafür schwach im Einzelschlag.",
+                  kosten:{energiezellen:635, erz:890, silikat:255, legierung:160} },
+  koeder:       { name:"Köder-Projektor", rolle:"Militär", bauzeit:120, angriff:8, panzerung:55,
+                  zone:"front", konterRolle:"korvette", koeder:5.0,
+                  beschreibung:"Falsche Signaturen ziehen das Feuer auf sich. Kämpft kaum selbst.",
+                  kosten:{energiezellen:730, erz:1025, silikat:295, legierung:185} },
+  bollwerk:     { name:"Bollwerkschiff", rolle:"Militär", bauzeit:380, angriff:48, panzerung:150,
+                  zone:"front", konterRolle:"korvette", deckungsbonus:0.45,
+                  beschreibung:"Schirmt die Flotte ab: verbessert die Deckung der hinteren Linien.",
+                  kosten:{energiezellen:1540, erz:2310, silikat:1000, kupfer:310, legierung:645} },
+  drohnenboot:  { name:"Drohnenboot", rolle:"Militär", bauzeit:55, angriff:34, panzerung:6,
+                  zone:"front", konterRolle:"jaeger", verbrauch:true, massenBonus:0.012,
+                  beschreibung:"Verbraucht sich im Einsatz. Richtet umso mehr an, je grösser die feindliche Flotte ist.",
+                  kosten:{energiezellen:385, erz:535, silikat:155, legierung:95} },
+  thermalbohrer:{ name:"Thermalbohrer", rolle:"Militär", bauzeit:200, angriff:48, panzerung:55,
+                  zone:"mitte", konterRolle:"kreuzer", aufbau:0.22,
+                  beschreibung:"Der Strahl frisst sich fest: Der Schaden steigt mit jeder Gefechtsrunde.",
+                  kosten:{energiezellen:1080, erz:1510, silikat:650, kupfer:160, legierung:430} },
+  raketenfregatte:{ name:"Raketenfregatte", rolle:"Militär", bauzeit:215, angriff:80, panzerung:50,
+                  zone:"mitte", konterRolle:"kreuzer", konterImmun:true,
+                  beschreibung:"Lenkraketen treffen alles gleich gut — vom Konterdreieck unberührt.",
+                  kosten:{energiezellen:1260, erz:1765, silikat:755, kupfer:190, legierung:505} },
+  spiegelkreuzer:{ name:"Spiegelkreuzer", rolle:"Militär", bauzeit:330, angriff:95, panzerung:120,
+                  zone:"mitte", konterRolle:"kreuzer", reflex:0.50,
+                  beschreibung:"Wirft einen Teil des erlittenen Beschusses auf den Angreifer zurück.",
+                  kosten:{energiezellen:1565, erz:2345, silikat:1020, kupfer:315, legierung:660} },
+  nanitensiphon:{ name:"Nanitensiphon", rolle:"Militär", bauzeit:240, angriff:40, panzerung:70,
+                  zone:"mitte", konterRolle:"fregatte", siphon:0.90,
+                  beschreibung:"Fängt einen Teil des Beschusses ab, der die eigene Linie trifft.",
+                  kosten:{energiezellen:900, erz:1255, silikat:540, kupfer:135, legierung:360} },
+  tarnkorsar:   { name:"Tarnkorsar", rolle:"Militär", bauzeit:260, angriff:120, panzerung:22,
+                  zone:"mitte", konterRolle:"jaeger", tarnungBis:3,
+                  beschreibung:"Wird die ersten drei Runden nicht erfasst. Danach sehr verwundbar.",
+                  kosten:{energiezellen:1650, erz:2310, silikat:990, kupfer:245, legierung:660} },
+  fernartillerie:{ name:"Fernartillerie", rolle:"Militär", bauzeit:420, angriff:210, panzerung:30,
+                  zone:"hinten", konterRolle:"kreuzer",
+                  beschreibung:"Enorme Feuerkraft aus der hinteren Linie — ohne Deckung wehrlos.",
+                  kosten:{energiezellen:2445, erz:3665, silikat:1590, kupfer:490, legierung:1025} },
+  staffeltraeger:{ name:"Staffelträger", rolle:"Militär", bauzeit:480, angriff:40, panzerung:90,
+                  zone:"hinten", konterRolle:"pirat", welle:90,
+                  beschreibung:"Schickt Jägerstaffeln vor, die selbst nicht als Ziel gelten.",
+                  kosten:{energiezellen:1665, erz:2500, silikat:1085, kupfer:335, legierung:700} },
+  ionenstoerer: { name:"Ionenstörer", rolle:"Militär", bauzeit:250, angriff:0, panzerung:60,
+                  zone:"hinten", konterRolle:"pirat", feindAbschlag:0.09,
+                  beschreibung:"Überlastet gegnerische Waffensysteme. Unbewaffnet.",
+                  kosten:{energiezellen:1575, erz:2200, silikat:945, kupfer:235, legierung:630} },
+  logistiktender:{ name:"Logistiktender", rolle:"Militär", bauzeit:220, angriff:0, panzerung:75,
+                  zone:"hinten", konterRolle:"pirat", bergung:0.20,
+                  beschreibung:"Birgt beschädigte Schiffe aller Klassen. Unbewaffnet.",
+                  kosten:{energiezellen:1850, erz:2590, silikat:1110, kupfer:280, legierung:740} },
+  befehlsgoliath:{ name:"Befehlsgoliath", rolle:"Militär", bauzeit:700, angriff:60, panzerung:200,
+                  zone:"hinten", konterRolle:"kreuzer", flottenBonus:0.18, hoechstzahl:1,
+                  beschreibung:"Führungsschiff: hebt die Feuerkraft der ganzen Flotte. Nur eines möglich.",
+                  kosten:{energiezellen:3510, erz:5265, silikat:2280, kupfer:700, legierung:1475} },
+  // --- Etappe 26: Beuteschiffe. Nur baubar mit vollständiger Blaupause. ---
+  bergungsschlepper:{ name:"Bergungsschlepper", rolle:"Beute", bauart:"bergungsschlepper",
+                  bauzeit:150, angriff:0, panzerung:45, konterRolle:"pirat", zone:"hinten",
+                  beschreibung:"Unbewaffnet. Holt mehr aus jedem Trümmerfeld — und manchmal ein Fragment.",
+                  kosten:{energiezellen:600, erz:800, silikat:350, kupfer:90, legierung:180} },
+  schrottjaeger:{ name:"Schrottjäger", rolle:"Beute", bauart:"schrottjaeger",
+                  bauzeit:70, angriff:20, panzerung:12, konterRolle:"jaeger", doppelrolle:"korvette",
+                  zone:"front",
+                  beschreibung:"Steht auf zwei Seiten des Dreiecks. Zerfällt dafür nach jedem Gefecht.",
+                  kosten:{energiezellen:230, erz:340, silikat:110, legierung:70} },
+  wachfregatte: { name:"Wachfregatte", rolle:"Beute", bauart:"wachfregatte",
+                  bauzeit:280, angriff:75, panzerung:110, konterRolle:"fregatte",
+                  reparierbar:true, langsam:1.6, zone:"front",
+                  seltenKosten:{ neutronium:20 },
+                  beschreibung:"Geht nicht verloren, sondern kehrt angeschlagen heim. Bremst den Verband.",
+                  kosten:{energiezellen:900, erz:1300, silikat:600, kupfer:180, legierung:360} },
+  bastionsschiff:{ name:"Bastionsschiff", rolle:"Beute", bauart:"bastionsschiff",
+                  bauzeit:900, angriff:320, panzerung:340, konterRolle:"kreuzer",
+                  hoechstzahl:1, bodentruppen:30, zone:"mitte",
+                  seltenKosten:{ neutronium:60, phasenkristall:35 },
+                  beschreibung:"Kämpft oben und unten. Ignoriert bei Invasionen den Geländevorteil.",
+                  kosten:{energiezellen:3400, erz:5000, silikat:2200, kupfer:800, legierung:1600} },
+  wandelrumpf:  { name:"Wandelrumpf", rolle:"Beute", bauart:"wandelrumpf",
+                  // schert aus der Linie aus und geht zuerst auf das Hinterland los
+                  bauzeit:210, angriff:70, panzerung:65, wechselrolle:true, zone:"mitte",
+                  umkehren:true, seltenKosten:{ phasenkristall:25 },
+                  beschreibung:"Die Konterrolle wechselt bei jedem Gefecht. Im Schnitt gut, im Einzelfall nutzlos.",
+                  kosten:{energiezellen:780, erz:1050, silikat:520, kupfer:150, legierung:300} },
+  gittertraeger:{ name:"Gitterträger", rolle:"Beute", bauart:"gittertraeger",
+                  bauzeit:400, angriff:0, panzerung:120, konterRolle:"pirat", zone:"hinten",
+                  seltenKosten:{ antimaterie:45 },
+                  beschreibung:"Verkürzt die Flugzeit des ganzen Verbands erheblich. Wehrlos.",
+                  kosten:{energiezellen:1800, erz:2400, silikat:1100, kupfer:400, legierung:700} },
+  blockadebrecher:{ name:"Blockadebrecher", rolle:"Beute", bauart:"blockadebrecher",
+                  bauzeit:160, angriff:0, panzerung:50, konterRolle:"pirat", zone:"hinten",
+                  kapazitaet:Math.round(FRACHTER_KAPAZITAET*1.5),
+                  beschreibung:"Frachtmissionen bringen deutlich mehr ein und verlaufen ohne Zwischenfall.",
+                  kosten:{energiezellen:650, erz:850, silikat:400, kupfer:140, legierung:200} },
+  foerderschiff:{ name:"Förderschiff", rolle:"Zivil", bauzeit:130, zone:"hinten",
+                  angriff:0, panzerung:35, foerderrate:120,
+                  beschreibung:"Baut Ressourcencluster ab. Bleibt vor Ort, bis der Vorrat erschöpft ist.",
+                  kosten:{energiezellen:480, erz:620, silikat:260, kupfer:70, legierung:140} },
+  landungsschiff:{ name:"Landungsschiff", rolle:"Invasion", bauzeit:200, zone:"hinten",
+                  angriff:0, panzerung:60, kapazitaet:TRUPPEN_JE_LANDUNGSSCHIFF,
+                  beschreibung:"Bringt Bodentruppen herunter. Unbewaffnet — ohne freien Orbit verloren.",
+                  kosten:{energiezellen:700, erz:900, silikat:400, kupfer:120, legierung:220} },
 };
 
 /* ============================================================
@@ -588,39 +1378,69 @@ const SCHIFFE = {
    einmal ausgewürfelt. Nicht genannte Distrikte sind dort verboten.
    ============================================================ */
 const OBJEKTE = {
-  ozean:   { name:"Ozeanplanet", art:"planet", farbe:"#4f8fc0",
-             beschreibung:"Wasserreich. Die Kornkammer eines Reiches.",
-             felder:{ solarfarm:[5,10], eisenmine:[5,10], silikatmine:[5,10], kupfermine:[0,2],
+  ozean:   { name:"Ozeanplanet", art:"planet", farbe:"#4f8fc0", bewohnbarkeit:1.0,
+             beschreibung:"Wasserreich. Die Kornkammer eines Reiches — nur wenig Platz für Industrie.",
+             felder:{ solarfarm:[5,10], eisenmine:[3,6], silikatmine:[3,6], kupfermine:[0,2],
                       landwirtschaft:[8,15], wasserkraftwerk:[2,5], fischfarm:[2,5] } },
-  vulkan:  { name:"Vulkanplanet", art:"planet", farbe:"#c25f47",
-             beschreibung:"Geothermisch aktiv. Nichts wächst, dafür fließt Energie.",
+
+  dschungel:{ name:"Dschungelwelt", art:"planet", farbe:"#4f9a52", bewohnbarkeit:1.25,
+             distriktKosten:1.30,
+             beschreibung:"Die lebendigste Welt überhaupt. Das Dickicht muss jedoch erst gerodet werden.",
+             felder:{ solarfarm:[3,6], eisenmine:[3,7], silikatmine:[4,8], kupfermine:[1,3],
+                      landwirtschaft:[8,14] } },
+
+  tundra:  { name:"Tundrawelt", art:"planet", farbe:"#7f9a8a", bewohnbarkeit:0.85,
+             beschreibung:"Mittelmässig in allem und ohne echte Schwäche. Die Welt für den Zweifelsfall.",
+             felder:{ solarfarm:[4,8], eisenmine:[5,9], silikatmine:[5,9], kupfermine:[2,4],
+                      landwirtschaft:[4,8] } },
+
+  wueste:  { name:"Wüstenwelt", art:"planet", farbe:"#c9a95f", bewohnbarkeit:0.65,
+             beschreibung:"Endlose Sonne, kein Wasser. Beste Solarerträge im ganzen Spiel.",
+             felder:{ solarfarm:[10,18], eisenmine:[4,8], silikatmine:[7,13], kupfermine:[2,5],
+                      landwirtschaft:[0,2] } },
+
+  karg:    { name:"Karge Welt", art:"planet", farbe:"#8a8073", bewohnbarkeit:0.35,
+             beschreibung:"Luftlos und tot. Das ergiebigste Bergwerk, das ein Reich haben kann.",
+             felder:{ solarfarm:[4,8], eisenmine:[10,18], silikatmine:[10,18], kupfermine:[4,7] } },
+
+  asteroid:{ name:"Grossasteroid", art:"habitat", farbe:"#a09080", bewohnbarkeit:0.25,
+             beschreibung:"Ein einzelner Brocken von einiger Grösse. Wenig Platz, dafür fast nur Erz.",
+             felder:{ eisenmine:[6,11], silikatmine:[5,9], kupfermine:[2,5] } },
+
+  mond:    { name:"Mond", art:"planet", farbe:"#9aa3ad", bewohnbarkeit:0.45,
+             zaehltNicht:true,
+             beschreibung:"Ein Trabant im Schatten seiner Welt. Zählt gegen keine Höchstzahl.",
+             felder:{ solarfarm:[3,6], eisenmine:[4,8], silikatmine:[3,7], kupfermine:[0,3] } },
+  vulkan:  { name:"Vulkanplanet", art:"planet", farbe:"#c25f47", bewohnbarkeit:0.5,
+             beschreibung:"Geothermisch aktiv. Nichts wächst, dafür fliesst Energie.",
              felder:{ solarfarm:[5,10], eisenmine:[5,10], silikatmine:[5,10], kupfermine:[3,5],
                       thermalkraftwerk:[2,5] } },
-  fels:    { name:"Felsplanet", art:"planet", farbe:"#a8845f",
-             beschreibung:"Karg und rohstoffreich.",
+  fels:    { name:"Felsplanet", art:"planet", farbe:"#a8845f", bewohnbarkeit:0.6,
+             beschreibung:"Steinig und rohstoffreich, mit dünner Atmosphäre.",
              felder:{ solarfarm:[5,10], eisenmine:[8,15], silikatmine:[8,15], kupfermine:[3,5],
                       landwirtschaft:[5,10] } },
-  eis:     { name:"Eisplanet", art:"planet", farbe:"#8fb8c8",
-             beschreibung:"Kalt und schwach besonnt.",
+  eis:     { name:"Eisplanet", art:"planet", farbe:"#8fb8c8", bewohnbarkeit:0.4,
+             beschreibung:"Kalt und schwach besonnt. Reich an gefrorenen Gasen.",
              felder:{ solarfarm:[3,8], eisenmine:[5,10], silikatmine:[5,10], kupfermine:[0,2],
                       landwirtschaft:[0,2] } },
-  gasriese:{ name:"Gasriese", art:"planet", farbe:"#c9a95f",
-             beschreibung:"Keine feste Oberfläche — nur Gas, das sich abschöpfen lässt.",
+  gasriese:{ name:"Gasriese", art:"planet", farbe:"#c9a95f", bewohnbarkeit:0,
+             ohneBevoelkerung:true,
+             beschreibung:"Keine feste Oberfläche — reiner Automatikbetrieb ohne Bewohner.",
              felder:{ solarfarm:[3,8], wasserstoffextraktor:[5,10], methanextraktor:[5,10] } },
 
-  wasserstoffwolke:{ name:"Wasserstoffwolke", art:"habitat", farbe:"#7fc4e8",
+  wasserstoffwolke:{ name:"Wasserstoffwolke", art:"habitat", farbe:"#7fc4e8", bewohnbarkeit:0.30,
              beschreibung:"Dichte Wasserstoffschwaden. Nur per Habitat besiedelbar.",
              felder:{ wasserstoffextraktor:[10,20] } },
-  erzguertel:{ name:"Erzgürtel", art:"habitat", farbe:"#d98b6a",
+  erzguertel:{ name:"Erzgürtel", art:"habitat", farbe:"#d98b6a", bewohnbarkeit:0.30,
              beschreibung:"Asteroidenfeld voller Metalle.",
              felder:{ eisenmine:[5,10], silikatmine:[5,10], kupfermine:[2,5] } },
-  photonenwolke:{ name:"Photonenwolke", art:"habitat", farbe:"#e8d24a",
+  photonenwolke:{ name:"Photonenwolke", art:"habitat", farbe:"#e8d24a", bewohnbarkeit:0.25,
              beschreibung:"Leuchtender Nebel — ein Paradies für Solarfarmen.",
              felder:{ solarfarm:[15,25] } },
-  methanwolke:{ name:"Methanwolke", art:"habitat", farbe:"#8e8e9c",
+  methanwolke:{ name:"Methanwolke", art:"habitat", farbe:"#8e8e9c", bewohnbarkeit:0.25,
              beschreibung:"Kohlenstoffreiche Gaswolke.",
              felder:{ methanextraktor:[10,20] } },
-  antike:  { name:"Antike Zivilisation", art:"habitat", farbe:"#b48fe8",
+  antike:  { name:"Antike Zivilisation", art:"habitat", farbe:"#b48fe8", bewohnbarkeit:0.35,
              beschreibung:"Ruinen einer untergegangenen Kultur. Der einzige Ort für Forschungsdistrikte.",
              felder:{ forschungsdistrikt:[10,20] } },
 };
@@ -658,12 +1478,23 @@ function karteErzeugen(){
 
   for(let i=0;i<9;i++){
     const ring = i===0 ? 0 : 1 + Math.floor((i-1)/4);
-    const winkel = rnd()*Math.PI*2;
-    const radius = i===0 ? 0 : ring*27 + rnd()*9;
+    /* Position würfeln, bis der Mindestabstand zu allen bisherigen Systemen
+       eingehalten ist — sonst überdecken sich Systeme samt Beschriftung
+       auf der Galaxiekarte. */
+    let winkel = rnd()*Math.PI*2;
+    let radius = i===0 ? 0 : ring*27 + rnd()*9;
+    let px = 50 + Math.cos(winkel)*radius, py = 50 + Math.sin(winkel)*radius*0.62;
+    for(let v=0; v<40 && i>0; v++){
+      const zuNah = systeme.some(o => Math.hypot(o.x-px, (o.y-py)/0.62) < 22);
+      if(!zuNah) break;
+      winkel = rnd()*Math.PI*2;
+      radius = ring*27 + rnd()*9;
+      px = 50 + Math.cos(winkel)*radius; py = 50 + Math.sin(winkel)*radius*0.62;
+    }
     const name = namen.splice(Math.floor(rnd()*namen.length),1)[0];
     // Sterntyp: gleiche Chance für alle
     const sternTypen = Object.keys(STERNE);
-    const sys = { id:i, name, x:50+Math.cos(winkel)*radius, y:50+Math.sin(winkel)*radius*0.62,
+    const sys = { id:i, name, x:px, y:py,
                   erkundet: i===0, objekte:[],
                   stern: sternTypen[Math.floor(rnd()*sternTypen.length)] };
 
@@ -685,7 +1516,17 @@ function karteErzeugen(){
         const pl = Object.keys(PARTEIEN);
         fraktion = pl[Math.floor(rnd()*pl.length)];
       }
-      objekte[objId] = { id:objId, systemId:i, typ, name:`${name} ${ROEM[j]}`, felder, fraktion };
+      // Strategisches Vorkommen — Eigenschaft der Welt, kein Distrikt
+      let vorkommen = null;
+      const passend = Object.keys(STRATEGISCH).filter(v =>
+        STRATEGISCH[v].vorkommenAuf.includes(typ));
+      if(passend.length && rnd() < VORKOMMEN_CHANCE)
+        vorkommen = passend[Math.floor(rnd()*passend.length)];
+
+      objekte[objId] = { id:objId, systemId:i, typ, name:`${name} ${ROEM[j]}`,
+                         felder, fraktion, vorkommen };
+      // Fremde Welten bringen von Anfang an eine Garnison mit
+      if(fraktion) objekte[objId].garnison = garnisonErzeugen(objekte[objId]);
       sys.objekte.push(objId);
       objId++;
     }
@@ -741,8 +1582,18 @@ function neuesSpiel(){
 
   const schiffe = {};
   for(const t in SCHIFFE) schiffe[t] = TESTSTART ? 20 : 0;
+  const truppen = {};
+  for(const t in TRUPPEN) truppen[t] = TESTSTART ? 60 : 0;
+  // Im Testmodus ist die ganze Karte offen — sonst prüft man Systemansichten
+  // immer erst nach mühsamem Sondenversand
+  if(TESTSTART) for(const sy of k.systeme) sy.erkundet = true;
+  if(TESTSTART) k.systeme.forEach(sy => { if(sy.selten !== undefined){} });
   return { systeme:k.systeme, objekte:k.objekte, res, forschung: TESTSTART ? 2000 : 0,
-           schiffe, missionen:[], werftauftrag:null,
+           schiffe, truppen, kaserneauftrag:null, missionen:[], werftauftrag:null,
+           fragmente:{}, bergemarken:0, gesehen:{}, geleit:null, geleitAb:0,
+           beginn:Date.now(), ueberfall:null, ueberfallAb:0,
+           ereignis:null, ereignisAb:0, ueberlauf:{},
+           cluster:[], clusterAb:0, selten:{},
            kolonien:{ [heimatId]: heimat }, techs:{},
            sonde:null, kolonieflug:null,
            ansicht:"galaxie", offenesSystem:0, auswahl:heimatId,
@@ -763,12 +1614,73 @@ function laden(){
       if(!k.zuweisung) k.zuweisung = {};
     }
     if(!s.techs) s.techs = {};
+    if(!Array.isArray(s.anomalien)) s.anomalien = [];
     if(!s.handel) s.handel = {};
     if(!s.diplomatie) s.diplomatie = {};
     for(const oid in s.objekte)
       if(s.objekte[oid].fraktion === undefined) s.objekte[oid].fraktion = null;
+    for(const oid in s.objekte)
+      if(s.objekte[oid].vorkommen === undefined) s.objekte[oid].vorkommen = null;
     if(!s.schiffe) s.schiffe = {};
     for(const t in SCHIFFE) if(!(t in s.schiffe)) s.schiffe[t] = 0;
+    // --- Etappe 23: Bodenoffensive in alte Spielstände ergänzen ---
+    if(!s.truppen) s.truppen = {};
+    for(const t in TRUPPEN) if(!(t in s.truppen)) s.truppen[t] = 0;
+    if(!("kaserneauftrag" in s)) s.kaserneauftrag = null;
+    // --- Etappe 26: Blaupausen in alte Spielstände ergänzen ---
+    if(!s.fragmente) s.fragmente = {};
+    if(!("bergemarken" in s)) s.bergemarken = 0;
+    if(!s.gesehen) s.gesehen = {};
+    if(!("geleit" in s)) s.geleit = null;
+    if(!("geleitAb" in s)) s.geleitAb = 0;
+    // --- Etappe 28 ---
+    if(!("beginn" in s)) s.beginn = Date.now();
+    if(!("ueberfall" in s)) s.ueberfall = null;
+    if(!("ueberfallAb" in s)) s.ueberfallAb = 0;
+    if(!("ereignis" in s)) s.ereignis = null;
+    if(!("ereignisAb" in s)) s.ereignisAb = 0;
+    if(!s.ueberlauf) s.ueberlauf = {};
+    // --- Etappe 29 ---
+    if(!Array.isArray(s.cluster)) s.cluster = [];
+    if(!("clusterAb" in s)) s.clusterAb = 0;
+    // --- Etappe 30 ---
+    if(!s.selten) s.selten = {};
+    for(const t in SELTEN) if(!(t in s.selten)) s.selten[t] = 0;
+    /* Bestehende Karten entzerren: Systeme, die sich überlagern, werden
+       paarweise auseinandergeschoben. Wenige Durchläufe genügen, und die
+       Grundanordnung bleibt erhalten. */
+    for(let runde=0; runde<24; runde++){
+      let bewegt = false;
+      for(const a of s.systeme) for(const b of s.systeme){
+        if(a.id >= b.id) continue;
+        const dx = b.x-a.x, dy = (b.y-a.y)/0.62;
+        const abstand = Math.hypot(dx, dy) || 0.001;
+        if(abstand < 20){
+          const schub = (20-abstand)/2, nx = dx/abstand, ny = dy/abstand;
+          a.x -= nx*schub; a.y -= ny*schub*0.62;
+          b.x += nx*schub; b.y += ny*schub*0.62;
+          bewegt = true;
+        }
+      }
+      if(!bewegt) break;
+    }
+    for(const sy of s.systeme){
+      sy.x = Math.min(90, Math.max(10, sy.x));
+      sy.y = Math.min(84, Math.max(14, sy.y));
+    }
+
+    // Alte Verbandsnamen auf die neuen vier abbilden
+    const ALT = { schmuggler:"aschefahrer", freibeuter:"schwarm",
+                  kriegsherr:"tiefenwache", festung:"kartell" };
+    for(const sid in s.systeme){
+      const sy = s.systeme[sid];
+      if(sy.piraten && ALT[sy.piraten.art]) sy.piraten.art = ALT[sy.piraten.art];
+    }
+    for(const oid in s.objekte){
+      const o = s.objekte[oid];
+      if(o.fraktion && !o.garnison) o.garnison = garnisonErzeugen(o);
+      if(!o.fraktion && o.garnison) delete o.garnison;
+    }
     if(!Array.isArray(s.missionen)) s.missionen = [];
     for(const m of s.missionen){          // alte Spielstände ergänzen
       if(m.nachSys == null) m.nachSys = m.art === "sammeln" ? s.objekte[m.ziel].systemId : m.ziel;
@@ -792,7 +1704,334 @@ function laden(){
     return s;
   }catch(e){ return neuesSpiel(); }
 }
-function speichern(){ localStorage.setItem("aussenposten6", JSON.stringify(spiel)); }
+// Schlüssel muss mit dem in laden() übereinstimmen — sonst wird nie zurückgelesen
+function speichern(){ localStorage.setItem("aussenposten8", JSON.stringify(spiel)); }
+
+/* ============================================================
+   8b. BLAUPAUSEN  (Etappe 26)
+   Fragmente entstehen ausschliesslich durch Taten, nie durch Zeit.
+   Man bekommt Stücke der Bauart, GEGEN DIE man gekämpft hat —
+   damit wird die Wahl des Gegners zur Entscheidung.
+   ============================================================ */
+function fragmentStand(bauart){ return spiel.fragmente[bauart] || 0; }
+function bauartFertig(bauart){ return fragmentStand(bauart) >= BAUARTEN[bauart].teile; }
+function bauartBekannt(bauart){ return !!spiel.gesehen[BAUARTEN[bauart].verband]; }
+// Ein Schiff ist baubar, wenn seine Blaupause vollständig ist
+function schiffFreigeschaltet(typ){
+  const d = SCHIFFE[typ];
+  return !d.bauart || bauartFertig(d.bauart);
+}
+
+/* Ein Fragment gutschreiben. Ist die Bauart schon vollständig,
+   wird daraus eine Bergemarke — kein Fund ist je verschwendet. */
+function fragmentGeben(bauart){
+  if(!BAUARTEN[bauart]) return null;
+  if(bauartFertig(bauart)){ spiel.bergemarken++; return { bauart, marke:true }; }
+  spiel.fragmente[bauart] = fragmentStand(bauart) + 1;
+  return { bauart, marke:false, fertig:bauartFertig(bauart) };
+}
+
+/* Zieht ein Fragment aus den Bauarten eines Verbands.
+   Bevorzugt unvollständige Bauarten, damit man vorankommt. */
+function fragmentZiehen(verband){
+  const alle = Object.keys(BAUARTEN).filter(b => !verband || BAUARTEN[b].verband === verband);
+  if(!alle.length) return null;
+  const offen = alle.filter(b => !bauartFertig(b));
+  const topf = offen.length ? offen : alle;
+  /* Gewichtet nach Seltenheit: Stücke grosser Bauarten tauchen seltener
+     auf. Sonst wäre eine 8-Teile-Blaupause nur wenig langwieriger als
+     eine 3-Teile-Blaupause, und die Staffelung liefe ins Leere. */
+  const gewicht = topf.map(b => 1 / Math.pow(BAUARTEN[b].teile, 1.6));
+  const summe = gewicht.reduce((a,b)=>a+b,0);
+  let wurf = Math.random() * summe;
+  for(let i=0;i<topf.length;i++){
+    wurf -= gewicht[i];
+    if(wurf <= 0) return fragmentGeben(topf[i]);
+  }
+  return fragmentGeben(topf[topf.length-1]);
+}
+
+/* Fundwurf nach einer Tat. anlass steuert die Wahrscheinlichkeit,
+   verband die Bauartreihe. schlepper erhöht die Chance. */
+function fragmentWurf(anlass, verband, schlepper){
+  let p = FRAGMENT_P[anlass] || 0;
+  p += (schlepper || 0) * SCHLEPPER_FRAGMENT_P;
+  if(Math.random() > Math.min(0.95, p)) return null;
+  return fragmentZiehen(verband);
+}
+
+// Meldungstext für einen Fund — sonst geht er im Berichtsstapel unter
+function fragmentText(f){
+  if(!f) return "";
+  const n = BAUARTEN[f.bauart].name;
+  if(f.marke) return `Ein weiteres Bruchstück der Bauart „${n}" — als Bergemarke verbucht.`;
+  if(f.fertig) return `Blaupause „${n}" vollständig! Die Bauart lässt sich jetzt in der Werft bauen.`;
+  return `Fragment geborgen: „${n}" (${fragmentStand(f.bauart)} von ${BAUARTEN[f.bauart].teile}).`;
+}
+
+// Fehlendes Fragment gegen Bergemarken kaufen
+function fragmentKaufen(bauart){
+  const preis = markenPreis(bauart);
+  if(spiel.bergemarken < preis || bauartFertig(bauart)) return;
+  spiel.bergemarken -= preis;
+  spiel.fragmente[bauart] = fragmentStand(bauart) + 1;
+  speichern(); zeichnen();
+}
+
+// Wie viele Schiffe einer Bauart sind im Verband? (für Sonderregeln)
+function anzahlIm(schiffe, typ){ return (schiffe && schiffe[typ]) || 0; }
+
+/* ============================================================
+   8c. ABWESENHEIT: ÜBERFÄLLE, EREIGNISSE, LAGERÜBERLAUF
+   Alle drei folgen demselben Grundsatz: Sie kosten Gelegenheiten
+   und Vorräte, niemals Aufgebautes.
+   ============================================================ */
+function zufallsPartei(){
+  const p = Object.keys(PARTEIEN);
+  return p[Math.floor(Math.random()*p.length)];
+}
+
+/* --- Überfälle ---------------------------------------------
+   Werden IMMER angekündigt und laufen erst nach der Vorwarnzeit ab.
+   Wer sie sieht, kann die Flotte heimholen und Vorräte verbauen.
+   Wer nicht da war, verliert Rohstoffe und einen Teil der Flotte —
+   aber keine Kolonie, kein Gebäude, keinen Distrikt.
+   ------------------------------------------------------------ */
+function groessteKolonie(){
+  let best = null, gross = 0;
+  for(const id in spiel.kolonien){
+    const k = spiel.kolonien[id];
+    let n = k.bev || 0;
+    for(const d in k.distrikte) n += k.distrikte[d];
+    if(n > gross){ gross = n; best = id; }
+  }
+  return best ? { id:best, groesse:gross } : null;
+}
+
+function ueberfallPruefen(jetzt){
+  if(spiel.ueberfall) return;                                  // einer läuft bereits
+  if(jetzt - (spiel.beginn||jetzt) < UEBERFALL_SCHONFRIST*1000/TEMPO) return;
+  if(jetzt < (spiel.ueberfallAb||0)) return;
+  if(!spiel.gesehen || !spiel.gesehen.tiefenwache) return;     // erst nach Begegnung
+  const k = groessteKolonie();
+  if(!k || k.groesse < UEBERFALL_MINDESTGROESSE) return;       // kleine Reiche bleiben in Ruhe
+
+  spiel.ueberfall = {
+    ziel: +k.id,
+    verband: "tiefenwache",
+    faelligAb: jetzt + UEBERFALL_VORWARNUNG*1000/TEMPO,
+    staerke: Math.round(k.groesse * 1.2),
+  };
+  spiel.ueberfallAb = jetzt + (UEBERFALL_VORWARNUNG + UEBERFALL_ABSTAND)*1000/TEMPO;
+  meldung(`Die Tiefenwache kündigt einen Zugriff auf ${spiel.objekte[k.id].name} an. `
+        + `Frist: ${zeitText(UEBERFALL_VORWARNUNG)}.`, "warnung");
+}
+
+/* Wehrt der Bestand ab? Verglichen wird die daheim gebliebene Flotte
+   plus die Garnison der Kolonie gegen die Stärke des Überfalls. */
+function ueberfallAusfuehren(u){
+  const obj = spiel.objekte[u.ziel];
+  if(!obj || !spiel.kolonien[u.ziel]){ spiel.ueberfall = null; return; }
+
+  let abwehr = eigeneGarnison(u.ziel) * 12;
+  for(const t in spiel.schiffe) abwehr += flotteFrei(t) * ((SCHIFFE[t].angriff||0) + (SCHIFFE[t].panzerung||0)*0.5);
+  const gegner = u.staerke * PIRAT_STAERKE_JE_PUNKT;
+
+  if(abwehr >= gegner){
+    meldung(`Der Zugriff auf ${obj.name} wurde abgewehrt — die Verteidigung stand bereit.`, "gut");
+    spiel.ueberfall = null;
+    return;
+  }
+
+  // Rohstoffe: gedeckelter Anteil, niemals mehr
+  const schwaeche = Math.min(1, 1 - abwehr/Math.max(1,gegner));
+  const anteil = UEBERFALL_ANTEIL * schwaeche;
+  const weg = {};
+  for(const r in spiel.res){
+    const n = Math.floor((spiel.res[r]||0) * anteil);
+    if(n > 0){ spiel.res[r] -= n; weg[r] = n; }
+  }
+  // Flotte: ein Teil fällt bei der Abwehr — Kolonie und Gebäude bleiben unangetastet
+  let schiffeWeg = 0;
+  for(const t in spiel.schiffe){
+    const n = Math.floor(flotteFrei(t) * UEBERFALL_SCHIFFE * schwaeche);
+    if(n > 0){ spiel.schiffe[t] -= n; schiffeWeg += n; }
+  }
+
+  // Nur die drei grössten Posten nennen — acht Zahlen liest niemand
+  const posten = Object.keys(weg).sort((a,b)=>weg[b]-weg[a]);
+  const liste = posten.slice(0,3).map(r=>`${z0(weg[r])} ${RES_NAMEN[r]}`).join(", ")
+    + (posten.length>3 ? ` und ${posten.length-3} weitere Posten` : "");
+  meldung(`Zugriff auf ${obj.name}: ${liste} geplündert`
+        + (schiffeWeg ? `, ${schiffeWeg} Schiffe verloren` : "")
+        + `. Anlagen und Bevölkerung blieben unversehrt.`, "alarm");
+  spiel.ueberfall = null;
+}
+
+/* --- Ressourcencluster ---------------------------------------
+   Erscheinen in erkundeten Systemen. Höchstens vier gleichzeitig; ein neuer
+   kommt erst nach Ablauf des Nachschubabstands. Damit ist nichts verpassbar,
+   was nicht ohnehin nachwächst — der Vorteil des aktiven Spielers liegt darin,
+   Förderflotten umzuschichten, nicht darin, im richtigen Moment da zu sein.
+   ------------------------------------------------------------ */
+function clusterPruefen(jetzt){
+  spiel.cluster = spiel.cluster || [];
+  // Verfallene Cluster entfernen; laufende Förderungen kehren dabei heim
+  spiel.cluster = spiel.cluster.filter(c => {
+    if(jetzt < c.bisAb) return true;
+    if(c.vorrat > 0) meldung(`${CLUSTER_ARTEN[c.art].name} bei ${spiel.systeme[c.systemId].name} `
+      + `hat sich aufgelöst. Der Rest bleibt ungehoben.`, "");
+    return false;
+  });
+
+  if(spiel.cluster.length >= CLUSTER_HOECHSTZAHL) return;
+  if(jetzt < (spiel.clusterAb||0)) return;
+  spiel.clusterAb = jetzt + CLUSTER_NACHSCHUB*1000/TEMPO;
+  if(Math.random() > CLUSTER_CHANCE) return;
+
+  const erkundet = spiel.systeme.filter(sy => sy.erkundet);
+  if(!erkundet.length) return;
+  const sy = erkundet[Math.floor(Math.random()*erkundet.length)];
+
+  /* Welche Cluster hier entstehen können, bestimmt der Sterntyp.
+     Der seltene Stoff erscheint deutlich seltener als die gewöhnlichen
+     Arten — er ist der Grund, dieses System überhaupt aufzusuchen. */
+  const w = STERNE[sy.stern]?.wirkung || {};
+  const moeglich = (w.cluster || Object.keys(CLUSTER_ARTEN).filter(a => !CLUSTER_ARTEN[a].selten)).slice();
+  if(w.selten && Math.random() < 0.30) moeglich.push(w.selten, w.selten);
+  const art = moeglich[Math.floor(Math.random()*moeglich.length)];
+  const d = CLUSTER_ARTEN[art];
+  if(!d) return;
+  const vorrat = Math.round(d.vorrat[0] + Math.random()*(d.vorrat[1]-d.vorrat[0]));
+
+  spiel.cluster.push({
+    id: Date.now()+Math.floor(Math.random()*1000),
+    art, systemId: sy.id, vorrat, anfangsvorrat: vorrat,
+    bisAb: jetzt + d.standzeit*1000/TEMPO,
+  });
+  meldung(`${d.name} bei ${sy.name} entdeckt — Förderschiffe können abbauen.`, "gut");
+}
+
+function clusterVon(id){ return (spiel.cluster||[]).find(c => c.id === id); }
+function clusterImSystem(sysId){ return (spiel.cluster||[]).filter(c => c.systemId === sysId); }
+
+/* Fördert für eine Zeitspanne und gibt die Ausbeute zurück.
+   Der Vorrat des Clusters sinkt entsprechend — er erschöpft sich also durch
+   Abbau, nicht durch Zeit. */
+function foerdern(m, sekunden){
+  const c = clusterVon(m.ziel);
+  if(!c || c.vorrat <= 0) return false;
+  const d0 = CLUSTER_ARTEN[c.art];
+  let rate = (m.schiffe.foerderschiff||0) * SCHIFFE.foerderschiff.foerderrate;
+  if(d0.selten) rate /= SELTEN_FOERDER_TEILER;
+  const menge = Math.min(c.vorrat, rate * sekunden/3600);
+  if(menge <= 0) return c.vorrat > 0;
+  c.vorrat -= menge;
+
+  const d = CLUSTER_ARTEN[c.art];
+  m.ladung = m.ladung || {};
+  for(const r in d.gibt) m.ladung[r] = (m.ladung[r]||0) + menge * d.gibt[r];
+  if(d.gibtSelten){
+    m.ladungSelten = m.ladungSelten || {};
+    for(const t in d.gibtSelten) m.ladungSelten[t] = (m.ladungSelten[t]||0) + menge * d.gibtSelten[t];
+  }
+  return c.vorrat > 0;
+}
+
+/* --- Ereignisse --------------------------------------------- */
+function ereignisPruefen(jetzt){
+  if(spiel.ereignis) return;
+  if(jetzt < (spiel.ereignisAb||0)) return;
+  if(!Object.keys(spiel.kolonien).length) return;
+  spiel.ereignisAb = jetzt + EREIGNIS_ABSTAND*1000/TEMPO;
+  if(Math.random() > EREIGNIS_CHANCE) return;
+
+  const arten = Object.keys(EREIGNISSE);
+  spiel.ereignis = {
+    art: arten[Math.floor(Math.random()*arten.length)],
+    offenBis: jetzt + EREIGNIS_FRIST*1000/TEMPO,
+  };
+}
+
+// Läuft die Frist ab, greift die folgenlose Möglichkeit von selbst
+function ereignisFristPruefen(jetzt){
+  const e = spiel.ereignis;
+  if(!e || jetzt < e.offenBis) return;
+  const d = EREIGNISSE[e.art];
+  const i = d.wahl.findIndex(w => w.nichtstun);
+  ereignisWaehlen(i >= 0 ? i : d.wahl.length-1, true);
+}
+
+function ereignisWaehlen(index, automatisch){
+  const e = spiel.ereignis; if(!e) return;
+  const d = EREIGNISSE[e.art], w = d.wahl[index]; if(!w) return;
+  if(w.kosten && !bezahlbar(w.kosten)) return;
+  if(w.kosten) abbuchen(w.kosten);
+  const text = w.wirkung() || "";
+  spiel.ereignis = null;
+  meldung((automatisch ? `${d.name} — Frist abgelaufen. ` : `${d.name}: `) + text,
+          automatisch ? "" : "gut");
+  if(!automatisch){ speichern(); zeichnen(); }
+}
+
+/* --- Lagerüberlauf ------------------------------------------
+   Das Lager begrenzt schon immer; neu ist nur, dass sichtbar wird,
+   wie viel dadurch verfällt. Das macht den Lagerausbau zu einer
+   Entscheidung statt zu einer Randnotiz.
+   ------------------------------------------------------------ */
+function ueberlaufMelden(){
+  const v = spiel.ueberlauf || {};
+  const gesamt = Object.keys(v).reduce((a,r)=>a+v[r],0);
+  if(gesamt < 1) return;
+  const liste = Object.keys(v).filter(r=>v[r]>=1)
+    .sort((a,b)=>v[b]-v[a]).slice(0,3)
+    .map(r=>`${z0(v[r])} ${RES_NAMEN[r]}`).join(", ");
+  meldung(`Lager voll — ${liste} sind verfallen. Ein Ausbau der Lagerhallen würde das verhindern.`,
+          "warnung");
+  spiel.ueberlauf = {};
+}
+
+// Einheitliche Meldung in den Berichtsstapel
+function meldung(text, art){
+  spiel.berichte = spiel.berichte || [];
+  spiel.berichte.unshift({ text, art:"lage", stil:art||"", ziel:"", zeit:Date.now(), gelesen:false });
+  spiel.berichte = spiel.berichte.slice(0,25);
+}
+
+/* ------------------------------------------------------------
+   Garnison einer fremden Welt
+   Stärke leitet sich aus der Grösse der Welt ab (Summe ihrer
+   Distriktfelder), damit ergiebige Welten auch teurer zu nehmen sind.
+   Die Mischung wird gewürfelt — deshalb lohnt es sich, vorher
+   nachzusehen, statt blind eine Standardarmee zu schicken.
+   ------------------------------------------------------------ */
+function garnisonErzeugen(obj){
+  let felder = 0;
+  for(const d in (obj.felder||{})) felder += obj.felder[d];
+  const gesamt = Math.max(12, Math.round(felder * (1.1 + Math.random()*0.8)));
+  const g = {}, arten = Object.keys(TRUPPEN);
+  let anteile = arten.map(()=> 0.5 + Math.random());
+  const summe = anteile.reduce((a,b)=>a+b,0);
+  arten.forEach((t,i)=>{
+    const n = Math.round(gesamt * anteile[i]/summe);
+    if(n > 0) g[t] = n;
+  });
+  if(!Object.keys(g).length) g.infanterie = 12;
+  return g;
+}
+function truppenAnzahl(t){ let n=0; for(const k in (t||{})) n += t[k]||0; return n; }
+function truppenStaerke(t){
+  let s = 0;
+  for(const k in (t||{})) s += t[k] * ((TRUPPEN[k].angriff||0) + (TRUPPEN[k].panzerung||0)*0.5);
+  return Math.floor(s);
+}
+function truppenFrei(typ){ return spiel.truppen[typ] || 0; }
+// Eigene Garnison einer Kolonie — Grundlage für spätere Verteidigungsgefechte
+function eigeneGarnison(objId){
+  const k = spiel.kolonien[objId]; if(!k) return 0;
+  const st = k.gebaeude.kaserne || 0;
+  return st ? Math.round(GEBAEUDE.kaserne.garnison * st * Math.pow(ERTRAG_STEIGERUNG, st-1)) : 0;
+}
 
 /* ============================================================
    8. FORMELN
@@ -818,8 +2057,13 @@ function gebaeudeKosten(s, zielLevel){
   for(const r in basis) k[r] = Math.floor(basis[r] * Math.pow(KOSTEN_STEIGERUNG, Math.max(0,zielLevel-1)));
   return k;
 }
-function distriktKosten(s){
-  const f = techStufe("distriktbau") ? 0.8 : 1;
+function distriktKosten(s, objId){
+  let f = techStufe("distriktbau") ? 0.8 : 1;
+  // Manche Welten erschweren das Bauen — der Dschungel muss erst gerodet werden
+  if(objId != null && spiel.objekte[objId]){
+    const typ = OBJEKTE[spiel.objekte[objId].typ];
+    if(typ && typ.distriktKosten) f *= typ.distriktKosten;
+  }
   const k = {};
   for(const r in DISTRIKTE[s].kosten) k[r] = Math.floor(DISTRIKTE[s].kosten[r]*f);
   return k;
@@ -828,14 +2072,27 @@ function bauzeit(kosten){
   let s=0; for(const r in kosten) s += kosten[r];
   return Math.max(5, Math.floor(s/20));
 }
-function bezahlbar(k){ for(const r in k) if((spiel.res[r]||0) < k[r]) return false; return true; }
-function abbuchen(k){ for(const r in k) spiel.res[r] -= k[r]; }
+/* Kosten können Grundstoffe und seltene Stoffe mischen. Seltene stehen
+   in einem eigenen Feld, damit sie nicht im Hauptstreifen auftauchen. */
+function bezahlbar(k, selten){
+  for(const r in k) if((spiel.res[r]||0) < k[r]) return false;
+  for(const t in (selten||{})) if((spiel.selten?.[t]||0) < selten[t]) return false;
+  return true;
+}
+function abbuchen(k, selten){
+  for(const r in k) spiel.res[r] -= k[r];
+  for(const t in (selten||{})) spiel.selten[t] -= selten[t];
+}
 
 function zaehleKolonien(){
-  let planeten=0, habitate=0;
-  for(const id in spiel.kolonien)
-    OBJEKTE[spiel.objekte[id].typ].art === "planet" ? planeten++ : habitate++;
-  return { planeten, habitate };
+  let planeten=0, habitate=0, frei=0;
+  for(const id in spiel.kolonien){
+    const t = OBJEKTE[spiel.objekte[id].typ];
+    if(t.zaehltNicht) frei++;                  // Monde belegen keinen Platz
+    else if(t.art === "planet") planeten++;
+    else habitate++;
+  }
+  return { planeten, habitate, frei };
 }
 
 /* ============================================================
@@ -845,6 +2102,7 @@ function zaehleKolonien(){
    ============================================================ */
 function berechneKolonie(id){
   const k = spiel.kolonien[id], obj = spiel.objekte[id];
+  const typ = OBJEKTE[obj.typ];
   const ein = {}; for(const r of RES) ein[r] = 0;
   let forschung = 0, wohnraum = 0, lager = 0;
 
@@ -883,20 +2141,24 @@ function berechneKolonie(id){
     }
   }
 
+  if(typ.ohneBevoelkerung) wohnraum = 0;   // Gasriesen laufen automatisch
   wohnraum = Math.floor(wohnraum);
   const bev = Math.floor(k.bev);
-  ein.nahrung -= bev * NAHRUNG_PRO_KOPF;
+  ein.nahrung -= bev * NAHRUNG_PRO_KOPF * strategieBoni().nahrungBedarf;
 
   let zugewiesen = 0;
   for(const s in k.zuweisung) zugewiesen += k.zuweisung[s];
   const frei = Math.max(0, bev - zugewiesen);
 
+  const sb = strategieBoni();
+  const bewohnbar = typ.ohneBevoelkerung ? 0
+    : (typ.bewohnbarkeit != null ? typ.bewohnbarkeit : 1);
   const platzAnteil = wohnraum > 0 ? Math.max(0, 1 - bev/wohnraum) : 0;
-  const wachstumProStunde = 2500 * platzAnteil;
+  const wachstumProStunde = 2500 * platzAnteil * bewohnbar * sb.wachstum;
   const wachstumsziel = 100 + 40*bev;
 
-  return { obj, typ:OBJEKTE[obj.typ], ein, forschung, wohnraum, lager, bev, frei, zugewiesen,
-           beitrag, wachstumProStunde, wachstumsziel };
+  return { obj, typ, bewohnbar, ein, forschung, wohnraum, lager, bev, frei,
+           zugewiesen, beitrag, wachstumProStunde, wachstumsziel };
 }
 
 function berechneReich(){
@@ -909,6 +2171,8 @@ function berechneReich(){
     for(const r of RES) ein[r] += z.ein[r];
     forschung += z.forschung; lager += z.lager; bev += z.bev;
   }
+  const sbr = strategieBoni();
+  forschung = forschung * sbr.forschung + sbr.forschungFest;   // Kryokristalle, Artefakte
   const hunger = spiel.res.nahrung <= 0 && ein.nahrung < 0;
   return { ein, forschung, lagergrenze:Math.floor(lager), bev, je, hunger };
 }
@@ -927,8 +2191,17 @@ function fortschreiben(){
     sek -= schritt;
     const g = berechneReich();
 
-    for(const r of RES)
-      spiel.res[r] = Math.max(0, Math.min(g.lagergrenze, spiel.res[r] + g.ein[r]*schritt/3600));
+    for(const r of RES){
+      const roh = spiel.res[r] + g.ein[r]*schritt/3600;
+      const neu = Math.max(0, Math.min(g.lagergrenze, roh));
+      // Was über die Lagergrenze hinaus produziert wurde, wird mitgezählt,
+      // damit der Spieler es erfährt statt es still zu verlieren
+      if(roh > g.lagergrenze){
+        spiel.ueberlauf = spiel.ueberlauf || {};
+        spiel.ueberlauf[r] = (spiel.ueberlauf[r]||0) + (roh - g.lagergrenze);
+      }
+      spiel.res[r] = neu;
+    }
     spiel.forschung += g.forschung*schritt/3600;
 
     for(const id in spiel.kolonien){
@@ -952,11 +2225,50 @@ function fortschreiben(){
       spiel.schiffe[t] = (spiel.schiffe[t]||0) + 1;
       spiel.werftauftrag = null;
     }
+    if(spiel.kaserneauftrag && jetzt >= spiel.kaserneauftrag.fertigAb){
+      const t = spiel.kaserneauftrag.typ;
+      spiel.truppen[t] = (spiel.truppen[t]||0) + 1;
+      spiel.kaserneauftrag = null;
+    }
     for(let i = spiel.missionen.length-1; i >= 0; i--){
       const m = spiel.missionen[i];
+
+      /* Förderung läuft in jedem Zeitschritt weiter, nicht nur an einem
+         Stichtag. Sie endet, wenn der Vorrat erschöpft ist oder der Cluster
+         sich aufgelöst hat — die Flotte kehrt dann mit der bis dahin
+         geförderten Ladung heim und geht nie verloren. */
+      if(m.phase === "foerdern"){
+        const c = clusterVon(m.ziel);
+        const weiter = c ? foerdern(m, schritt) : false;
+        if(!weiter){
+          m.bericht = c
+            ? `Vorrat erschöpft — die Förderflotte kehrt zurück.`
+            : `Der Cluster hat sich aufgelöst — die Förderflotte kehrt mit der bisherigen Ladung zurück.`;
+          if(c && c.vorrat <= 0) spiel.cluster = spiel.cluster.filter(x => x.id !== c.id);
+          m.phase = "rueck";
+          m.startAb = jetzt;
+          m.endeAb = jetzt + m.dauer*1000/TEMPO;
+        }
+        continue;
+      }
+
       if(jetzt < m.endeAb) continue;
       if(m.phase === "hin"){
         missionAuswerten(m);
+        // Förderung: läuft, bis der Vorrat erschöpft oder der Cluster weg ist
+        if(m.art === "foerdern" && !m.abgebrochen && clusterVon(m.ziel)){
+          m.phase = "foerdern";
+          m.startAb = jetzt;
+          m.endeAb = 0;              // kein fester Endzeitpunkt
+          continue;
+        }
+        // Invasion: nach gesichertem Orbit folgt die Belagerung vor dem Sturm
+        if(m.art === "invasion" && m.belagerungBis && !m.abgebrochen){
+          m.phase = "belagerung";
+          m.startAb = jetzt;
+          m.endeAb = m.belagerungBis;
+          continue;
+        }
         const uebrig = Object.values(m.schiffe).reduce((a,b)=>a+b,0);
         if(uebrig === 0 && !m.ladung){
           missionHeimkehr(m); spiel.missionen.splice(i,1);
@@ -965,6 +2277,11 @@ function fortschreiben(){
           m.startAb = jetzt;
           m.endeAb = jetzt + m.dauer*1000/TEMPO;
         }
+      }else if(m.phase === "belagerung"){
+        invasionSturm(m);
+        m.phase = "rueck";
+        m.startAb = jetzt;
+        m.endeAb = jetzt + m.dauer*1000/TEMPO;
       }else{
         missionHeimkehr(m);
         spiel.missionen.splice(i,1);
@@ -982,6 +2299,17 @@ function fortschreiben(){
       spiel.kolonieflug = null;
     }
   }
+  /* --- Etappe 28: einmal je Durchlauf, nicht je 60-Sekunden-Schritt ---
+     Reihenfolge: Erst prüfen, ob ein angekündigter Überfall fällig ist,
+     dann einen neuen ankündigen. Sonst könnte beides im selben Durchlauf
+     geschehen und die Vorwarnzeit wäre wirkungslos. */
+  if(spiel.ueberfall && jetzt >= spiel.ueberfall.faelligAb) ueberfallAusfuehren(spiel.ueberfall);
+  ueberfallPruefen(jetzt);
+  ereignisFristPruefen(jetzt);
+  ereignisPruefen(jetzt);
+  clusterPruefen(jetzt);
+  ueberlaufMelden();
+
   aufgabenPruefen();     // nach jedem Zeitschritt neue Erfolge erfassen
   handelPruefen();       // Sortimente erneuern, wenn sie abgelaufen sind
 }
@@ -1052,14 +2380,58 @@ function angeboteWuerfeln(objId){
     if(will === gibt) will = d.verlangt[(d.verlangt.indexOf(will)+1) % d.verlangt.length];
 
     const menge = Math.max(1, Math.round((260 / RES_WERT[gibt]) * (0.6 + Math.random()*0.9)));
+    // Geleitschutz der Kartellflotte verbessert die Kurse spürbar
+    const geleit = geleitAktiv() ? (1 + GELEIT_KURSBONUS) : 1;
     const preis = Math.max(1, Math.round(
-      menge * RES_WERT[gibt] / RES_WERT[will] / (d.grundkurs * bonus)));
+      menge * RES_WERT[gibt] / RES_WERT[will] / (d.grundkurs * bonus * geleit)));
     liste.push({ gibt, menge, will, preis, weg:false });
   }
   return liste;
 }
 
+/* ------------------------------------------------------------
+   Geleitschutz der Kartellflotte  (Etappe 24)
+   Ein Angebot, keine Erpressung: Wer nicht zahlt, verliert nichts.
+   Damit bleibt es dauerhaft eine Abwägung, statt nach kurzer Zeit
+   zur Routine zu werden — und es bestraft niemanden, der weg war.
+   ------------------------------------------------------------ */
+function geleitAktiv(){ return !!(spiel.geleit && spiel.geleit.bisAb > Date.now()); }
+
+function geleitPreis(){
+  // Richtet sich nach der Reichsgrösse, damit es lange eine Frage bleibt
+  const kolonien = Object.keys(spiel.kolonien).length || 1;
+  const f = 1 + kolonien * 0.6;
+  return { energiezellen: Math.round(2200*f), erz: Math.round(1800*f),
+           kupfer: Math.round(400*f), legierung: Math.round(600*f) };
+}
+
+/* Erzeugt ein Angebot, wenn gerade keines offen oder aktiv ist und
+   die Pause vorbei ist. Das Angebot läuft von selbst aus. */
+function geleitPruefen(){
+  const jetzt = Date.now();
+  if(geleitAktiv()) return;
+  if(spiel.geleit && spiel.geleit.offenBis > jetzt) return;    // Angebot liegt noch
+  if(jetzt < spiel.geleitAb) return;                            // Pause läuft
+  if(!spiel.gesehen.kartell) return;                            // erst nach Begegnung
+  spiel.geleit = { preis: geleitPreis(), offenBis: jetzt + 3*24*3600*1000/TEMPO, bisAb:0 };
+  spiel.geleitAb = jetzt + GELEIT_PAUSE*1000/TEMPO;
+}
+
+function geleitAnnehmen(){
+  if(!spiel.geleit || geleitAktiv()) return;
+  const preis = spiel.geleit.preis;
+  if(!bezahlbar(preis)) return;
+  abbuchen(preis);
+  spiel.geleit = { preis, bisAb: Date.now() + GELEIT_LAUFZEIT*1000/TEMPO, offenBis:0 };
+  spiel.berichte = spiel.berichte || [];
+  spiel.berichte.unshift({ text:"Geleitschutz der Kartellflotte vereinbart. "
+    +"Bessere Kurse und sichere Konvois für die Laufzeit.",
+    art:"handel", ziel:"Kartellflotte", zeit:Date.now(), gelesen:false });
+  speichern(); zeichnen();
+}
+
 function handelPruefen(){
+  geleitPruefen();
   spiel.handel = spiel.handel || {};
   spiel.diplomatie = spiel.diplomatie || {};
   for(const pid in PARTEIEN) if(spiel.diplomatie[pid] == null) spiel.diplomatie[pid] = 0;
@@ -1091,7 +2463,8 @@ function handeln(objId, index){
 
   spiel.res[a.will] -= a.preis;
 
-  if(d.risiko && Math.random() < d.risiko){
+  // Geleitschutz macht Konvois sicher — das ist sein sichtbarster Nutzen
+  if(d.risiko && !geleitAktiv() && Math.random() < d.risiko){
     a.weg = true;
     spiel.berichte = spiel.berichte || [];
     spiel.berichte.unshift({
@@ -1111,9 +2484,141 @@ function handeln(objId, index){
   const schritt = jetztW < 40 ? 2 : jetztW < 70 ? 1 : 0.5;
   diploAendern(o.fraktion, schritt);
 
+  /* Unter Geleitschutz fallen gelegentlich Kartell-Baupläne ab.
+     Das ist der Weg an Blockadebrecher-Fragmente für Spieler,
+     die wenig kämpfen. */
+  if(geleitAktiv() && Math.random() < GELEIT_FRAGMENT_P){
+    spiel.gesehen.kartell = true;
+    const f = fragmentGeben("blockadebrecher");
+    if(f){
+      spiel.berichte = spiel.berichte || [];
+      spiel.berichte.unshift({ text:"Aus Kartellbeständen: "+fragmentText(f),
+        art:"handel", ziel:"Kartellflotte", zeit:Date.now(), gelesen:false });
+    }
+  }
+
   a.weg = true;
   speichern(); zeichnen();
 }
+
+/* ============================================================
+   9b. STRATEGISCHE VORKOMMEN AUSWERTEN
+   Gezählt wird nur, was auch besiedelt ist. Mehrfachbesitz wirkt
+   gestaffelt bis zur Obergrenze der jeweiligen Ressource.
+   ============================================================ */
+function vorkommenBesitz(){
+  const zahl = {};
+  for(const v in STRATEGISCH) zahl[v] = 0;
+  for(const id in spiel.kolonien){
+    const o = spiel.objekte[id];
+    if(o && o.vorkommen) zahl[o.vorkommen]++;
+  }
+  // auf die jeweilige Obergrenze deckeln
+  const wirksam = {};
+  for(const v in zahl) wirksam[v] = Math.min(zahl[v], STRATEGISCH[v].maxStufen);
+  return { zahl, wirksam };
+}
+
+function strategieBoni(){
+  const w = vorkommenBesitz().wirksam;
+  return {
+    angriff:      1 + 0.12 * w.iridium,
+    flugTempo:    1 + 0.18 * w.deuterium,
+    wachstum:     1 + 0.25 * w.xenoflora,
+    nahrungBedarf:1 - 0.10 * Math.min(1, w.xenoflora),
+    forschung:    1 + 0.15 * w.kryokristalle,
+    forschungFest: 40 * w.artefakte,
+  };
+}
+
+/* ============================================================
+   9c. FUNDSTÜCKE ÖFFNEN
+   Ein Balken, über den ein Zeiger läuft; man hält ihn im Feld an.
+   Drei Versuche, das Feld wird jedes Mal schmaler. Je mehr Treffer,
+   desto grösser die Ausbeute — ein Fehlgriff kostet nur Anteile,
+   nie den ganzen Fund.
+   ============================================================ */
+let fundLauf = null;     // läuft nur, solange das Fenster offen ist
+
+function anomalieOeffnen(id){
+  const a = (spiel.anomalien||[]).find(x => x.id === id);
+  if(!a || a.erledigt) return;
+  fundLauf = {
+    anomalieId: id,
+    runde: 1,
+    treffer: 0,
+    zeigerAb: performance.now(),
+    laufzeit: 1500,                       // Millisekunden für einen Durchlauf
+    zone: 0.26,                           // Breite des Trefferfeldes
+    zonenMitte: 0.3 + Math.random()*0.4,
+    ergebnis: null,
+  };
+  zeichnenFund();
+}
+
+// Position des Zeigers von 0 bis 1, hin und her
+function zeigerStand(){
+  if(!fundLauf) return 0;
+  const t = ((performance.now() - fundLauf.zeigerAb) % (fundLauf.laufzeit*2)) / fundLauf.laufzeit;
+  return t <= 1 ? t : 2 - t;
+}
+
+function fundKlick(){
+  if(!fundLauf || fundLauf.ergebnis) return;
+  const pos = zeigerStand();
+  const halb = fundLauf.zone / 2;
+  if(Math.abs(pos - fundLauf.zonenMitte) <= halb) fundLauf.treffer++;
+
+  if(fundLauf.runde >= ANOMALIE_RUNDEN){
+    fundAbschliessen();
+  }else{
+    fundLauf.runde++;
+    fundLauf.zone *= 0.72;                // wird enger
+    fundLauf.laufzeit *= 0.88;            // und schneller
+    fundLauf.zonenMitte = 0.25 + Math.random()*0.5;
+    fundLauf.zeigerAb = performance.now();
+  }
+  zeichnenFund();
+}
+
+function fundAbschliessen(){
+  const a = (spiel.anomalien||[]).find(x => x.id === fundLauf.anomalieId);
+  if(!a) { fundLauf = null; return; }
+  const d = ANOMALIEN[a.art];
+
+  // Anteil der Ausbeute nach Treffern: 30 % Grundstock, Rest über Können
+  const anteil = 0.30 + 0.70 * (fundLauf.treffer / ANOMALIE_RUNDEN);
+  const beute = {};
+  for(const r in d.beute) beute[r] = Math.round(d.beute[r] * anteil);
+
+  for(const r in beute){
+    if(r === "forschung") spiel.forschung += beute[r];
+    else spiel.res[r] = (spiel.res[r]||0) + beute[r];
+  }
+  a.erledigt = true;
+  a.treffer = fundLauf.treffer;
+  a.beute = beute;
+
+  /* Geschicklichkeit bleibt Zugabe: Die Treffer bestimmen die Ausbeute,
+     aber NICHT, ob ein Fragment dabei ist. Wer schlecht zielt, bekommt
+     weniger Rohstoffe — die Blaupause hängt nie an einem Treffer. */
+  const f = fragmentWurf("anomalie", null, 0);
+  if(f) a.fragmentText = fragmentText(f);
+
+  spiel.berichte = spiel.berichte || [];
+  spiel.berichte.unshift({
+    text:`${d.name} geborgen — ${fundLauf.treffer} von ${ANOMALIE_RUNDEN} Kopplungen sassen.`
+       + (f ? " " + fragmentText(f) : ""),
+    art:"erkunden", ziel:spiel.systeme[a.systemId].name,
+    ladung:beute, zeit:Date.now(), gelesen:false,
+  });
+  spiel.berichte = spiel.berichte.slice(0,25);
+
+  fundLauf.ergebnis = { treffer:fundLauf.treffer, beute, anteil };
+  speichern();
+}
+
+function fundSchliessen(){ fundLauf = null; zeichnenFund(); zeichnen(); }
 
 /* ============================================================
    10a. AUFGABEN AUSWERTEN
@@ -1164,20 +2669,56 @@ function schiffBauzeit(typ){
   const w = werftStufe();
   return Math.max(3, Math.floor(SCHIFFE[typ].bauzeit / (1 + 0.25*Math.max(0, w-1))));
 }
+// Wie viele Schiffe eines Typs existieren — Bestand, Auftrag und unterwegs
+function schiffGesamt(typ){
+  let n = flotteFrei(typ);
+  if(spiel.werftauftrag && spiel.werftauftrag.typ === typ) n++;
+  for(const m of spiel.missionen) n += (m.schiffe && m.schiffe[typ]) || 0;
+  return n;
+}
 function schiffBauen(typ){
   if(spiel.werftauftrag || werftStufe() < 1) return;
+  if(!schiffFreigeschaltet(typ)) return;          // Blaupause unvollständig
+  const grenze = SCHIFFE[typ].hoechstzahl;
+  if(grenze && schiffGesamt(typ) >= grenze) return;
   const kosten = SCHIFFE[typ].kosten;
-  if(!bezahlbar(kosten)) return;
-  abbuchen(kosten);
+  const selten = SCHIFFE[typ].seltenKosten;
+  if(!bezahlbar(kosten, selten)) return;
+  abbuchen(kosten, selten);
   const dauer = schiffBauzeit(typ);
   spiel.werftauftrag = { typ, dauer, fertigAb: Date.now()+dauer*1000/TEMPO };
+  speichern(); zeichnen();
+}
+
+/* ------------------------------------------------------------
+   Kaserne — bildet Bodentruppen aus.
+   Eigener Auftragsplatz neben der Werft: Schiffe und Truppen
+   entstehen parallel, sonst würde eine Invasion doppelt so lange
+   blockieren wie sie ohnehin schon dauert.
+   ------------------------------------------------------------ */
+function kaserneStufe(){
+  let max = 0;
+  for(const id in spiel.kolonien) max = Math.max(max, spiel.kolonien[id].gebaeude.kaserne || 0);
+  return max;
+}
+function truppeBauzeit(typ){
+  const k = kaserneStufe();
+  return Math.max(3, Math.floor(TRUPPEN[typ].bauzeit / (1 + 0.25*Math.max(0, k-1))));
+}
+function truppeBauen(typ){
+  if(spiel.kaserneauftrag || kaserneStufe() < 1) return;
+  const kosten = TRUPPEN[typ].kosten;
+  if(!bezahlbar(kosten)) return;
+  abbuchen(kosten);
+  const dauer = truppeBauzeit(typ);
+  spiel.kaserneauftrag = { typ, dauer, fertigAb: Date.now()+dauer*1000/TEMPO };
   speichern(); zeichnen();
 }
 
 // Flugdauer zwischen dem nächsten eigenen System und einem Ziel
 function flugdauer(sysId, faktor){
   const d = naechstesEigenesSystem(spiel.systeme[sysId]);
-  return Math.max(10, Math.floor(d * faktor));
+  return Math.max(6, Math.floor(d * faktor / strategieBoni().flugTempo));
 }
 function flotteFrei(typ){ return spiel.schiffe[typ] || 0; }
 
@@ -1193,14 +2734,30 @@ function startSystem(zielSysId){
   return best;
 }
 
-function starteMission(art, ziel, schiffe){
+function starteMission(art, ziel, schiffe, truppen){
   for(const t in schiffe) if(flotteFrei(t) < schiffe[t]) return false;
+  for(const t in (truppen||{})) if(truppenFrei(t) < truppen[t]) return false;
   for(const t in schiffe) spiel.schiffe[t] -= schiffe[t];
-  const sysId = art === "sammeln" ? spiel.objekte[ziel].systemId : ziel;
-  const dauer = flugdauer(sysId, art === "sammeln" ? 1.8 : 1.5);
+  for(const t in (truppen||{})) spiel.truppen[t] -= truppen[t];
+  const zielIstObjekt = (art === "sammeln" || art === "invasion");
+  const sysId = art === "foerdern" ? (clusterVon(ziel)||{}).systemId
+              : zielIstObjekt ? spiel.objekte[ziel].systemId : ziel;
+  let dauer = flugdauer(sysId, art === "sammeln" ? 1.8 : art === "invasion" ? 2.0 : 1.5);
+  /* Der Gitterträger verkürzt die Flugzeit des ganzen Verbands, die
+     Wachfregatte bremst ihn aus. Beides wirkt auf den gesamten Flug,
+     nicht auf einzelne Schiffe — der Verband fliegt zusammen. */
+  if(art === "foerdern"){
+    const cc = clusterVon(ziel);
+    if(cc && CLUSTER_ARTEN[cc.art].anfahrt) dauer *= CLUSTER_ARTEN[cc.art].anfahrt;
+  }
+  if(anzahlIm(schiffe, "gittertraeger") > 0) dauer *= (1 - GITTER_FLUGBONUS);
+  if(anzahlIm(schiffe, "wachfregatte") > 0)  dauer *= SCHIFFE.wachfregatte.langsam;
+  dauer = Math.max(30, Math.round(dauer));
   spiel.missionen.push({
     id: Date.now()+Math.floor(Math.random()*1000),
-    art, ziel, schiffe, dauer, phase:"hin",
+    art, ziel, schiffe, truppen: truppen||{}, dauer, phase:"hin",
+    clusterArt: art === "foerdern" ? (clusterVon(ziel)||{}).art : null,
+    truppenAus: { ...(truppen||{}) },
     vonSys: startSystem(sysId), nachSys: sysId,
     ausgesandt: { ...schiffe },
     startAb: Date.now(),
@@ -1211,7 +2768,7 @@ function starteMission(art, ziel, schiffe){
 }
 
 // Was ein Objekt beim Sammeln hergibt — abgeleitet aus seinen Feldern
-function sammelErtrag(objId, frachter){
+function sammelErtrag(objId, frachter, brecher){
   const obj = spiel.objekte[objId];
   const quellen = {};
   for(const d in obj.felder){
@@ -1221,7 +2778,9 @@ function sammelErtrag(objId, frachter){
     }
   }
   const summe = Object.values(quellen).reduce((a,b)=>a+b,0) || 1;
-  const gesamt = frachter * FRACHTER_KAPAZITAET;
+  // Blockadebrecher tragen mehr und handeln besser
+  const gesamt = frachter * FRACHTER_KAPAZITAET
+               + (brecher||0) * SCHIFFE.blockadebrecher.kapazitaet * (1 + BLOCKADE_BONUS);
   const ladung = {};
   for(const r in quellen) ladung[r] = Math.floor(gesamt * quellen[r]/summe);
   return ladung;
@@ -1242,21 +2801,66 @@ function lebenspunkte(typ){
 }
 
 // Schaden, den eine Flotte in einer Runde austeilt, aufgeteilt nach Zieltyp
-function schadenAusteilen(angreifer, verteidiger, bonus){
+function schadenAusteilen(angreifer, verteidiger, bonus, eigen, rollen, umkehren, runde, extra){
   const zielAnteile = {};
   const gesamt = flottenStaerke(verteidiger);
   if(!gesamt) return {};
-  for(const t in verteidiger) zielAnteile[t] = verteidiger[t] / gesamt;
+  /* Zielgewichtung nach Zone. Ein Schiff, das umkehrt (Bohrer,
+     Enterfahrzeuge), dreht die Gewichtung um und geht zuerst auf
+     das Hinterland los. */
+  const deckung = deckungsgrad(verteidiger);
+  let summe = 0;
+  for(const t in verteidiger){
+    if(!verteidiger[t]) continue;
+    const d = SCHIFFE[t] || {};
+    // Getarnte Schiffe werden in den ersten Runden gar nicht erfasst
+    if(d.tarnungBis && runde && runde <= d.tarnungBis){ zielAnteile[t] = 0; continue; }
+    // Ausscherer suchen sich das Hinterland: sie kehren den Schutz um
+    let g = umkehren ? (1 + deckung * ZONEN[zoneVon(t)].schutz)
+                     : zonenGewicht(t, deckung);
+    if(d.koeder) g *= d.koeder;          // zieht Feuer auf sich
+    zielAnteile[t] = verteidiger[t] * g;
+    summe += zielAnteile[t];
+  }
+  // Sind nur getarnte Schiffe übrig, werden auch sie beschossen
+  if(summe <= 0){
+    for(const t in verteidiger){ if(verteidiger[t]){ zielAnteile[t] = verteidiger[t]; summe += verteidiger[t]; } }
+  }
+  if(summe <= 0) return {};
+  for(const t in zielAnteile) zielAnteile[t] /= summe;
 
   const schaden = {};
   for(const zt in zielAnteile) schaden[zt] = 0;
 
+  const feindMenge = Object.values(verteidiger).reduce((a,b)=>a+b,0);
+  // bonus = 0 wird nur zur Ermittlung der Zielverteilung benutzt (Reflexion)
+  if(bonus === 0){
+    const v = {};
+    for(const t in zielAnteile) v[t] = zielAnteile[t];
+    return v;
+  }
   for(const at in angreifer){
     const n = angreifer[at]; if(!n) continue;
-    const roh = n * (SCHIFFE[at].angriff || 0) * bonus * SCHADEN_FAKTOR;
+    const ad = SCHIFFE[at] || {};
+    const iridium = eigen ? strategieBoni().angriff : 1;   // nur die eigene Flotte
+    let eigenschaft = 1;
+    // Der Bohrer frisst sich fest: mehr Schaden mit jeder Runde
+    if(ad.aufbau && runde) eigenschaft *= 1 + ad.aufbau * (runde - 1);
+    // Drohnen richten mehr an, je dichter der Gegner steht
+    if(ad.massenBonus) eigenschaft *= 1 + ad.massenBonus * feindMenge;
+    let roh = n * (SCHIFFE[at].angriff || 0) * bonus * SCHADEN_FAKTOR * iridium * eigenschaft;
+    // Trägerstaffeln fliegen mit, gelten aber selbst nicht als Ziel
+    if(ad.welle) roh += n * ad.welle * bonus * SCHADEN_FAKTOR * iridium;
+    if(extra && extra.flottenBonus) roh *= (1 + extra.flottenBonus);
+    // Beuteschiffe können eine andere, mehrere oder eine gewürfelte Rolle haben
+    const zeile = rollen && rollen[at] ? rollen[at] : konterZeile(at);
+    const zweite = ad.doppelrolle ? KONTER[ad.doppelrolle] : null;
     // Feuer verteilt sich auf die Zieltypen nach ihrem Anteil an der Flotte
     for(const zt in zielAnteile){
-      const konter = (KONTER[at] && KONTER[at][zt]) || 1;
+      // Der Schrottjäger steht auf zwei Seiten: es zählt der bessere Wert
+      // Lenkraketen sind vom Konterdreieck unberührt
+      let konter = ad.konterImmun ? 1 : ((zeile && zeile[zt]) || 1);
+      if(!ad.konterImmun && zweite && (zweite[zt]||1) > konter) konter = zweite[zt];
       const streuung = 1 + (Math.random()*2 - 1) * SCHADEN_STREUUNG;
       schaden[zt] += roh * zielAnteile[zt] * konter * streuung;
     }
@@ -1264,16 +2868,24 @@ function schadenAusteilen(angreifer, verteidiger, bonus){
   return schaden;
 }
 
-// Rechnet Schaden in Schiffsverluste um
-function verlusteAnwenden(flotte, schaden){
+/* Rechnet Schaden in Schiffsverluste um.
+   Wichtig ist das Schadenskonto: Was in einer Runde nicht für ein
+   ganzes Schiff reicht, bleibt stehen und zählt in der nächsten Runde
+   mit. Ohne das verpufft jeder Treffer unterhalb eines vollen
+   Schiffslebens — bei wenigen, sehr dicken Schiffen (schwere
+   Piratenverbände) nahm der Gegner dadurch praktisch nie Schaden. */
+function verlusteAnwenden(flotte, schaden, konto){
   const verluste = {};
   for(const t in flotte){
-    if(!flotte[t] || !schaden[t]) continue;
-    const gefallen = Math.min(flotte[t], Math.floor(schaden[t] / lebenspunkte(t)));
+    if(!flotte[t]) continue;
+    konto[t] = (konto[t] || 0) + (schaden[t] || 0);
+    const leben = lebenspunkte(t);
+    const gefallen = Math.min(flotte[t], Math.floor(konto[t] / leben));
     if(gefallen > 0){
+      konto[t] -= gefallen * leben;
       flotte[t] -= gefallen;
       verluste[t] = gefallen;
-      if(flotte[t] <= 0) delete flotte[t];
+      if(flotte[t] <= 0){ delete flotte[t]; delete konto[t]; }
     }
   }
   return verluste;
@@ -1286,17 +2898,92 @@ function kampf(sysId, schiffe){
   const feind = { ...sys.piraten.flotte };
   const feindStart = flottenStaerke(feind);
   const panzerbonus = art.panzerbonus || 1;
+  // Man kennt eine Bauart erst, wenn man ihrem Verband begegnet ist
+  const verband = sys.piraten.art;
+  spiel.gesehen[verband] = true;
 
+  /* Wandelrümpfe würfeln ihre Konterrolle zu Beginn jedes Gefechts.
+     Deshalb gleicht sich der Zufall bei vielen aus, während wenige
+     ein echtes Risiko sind. */
+  const rollen = {};
+  let gewuerfelt = null;
+  for(const t in eigen){
+    if(SCHIFFE[t] && SCHIFFE[t].wechselrolle){
+      const wahl = ["jaeger","korvette","kreuzer"][Math.floor(Math.random()*3)];
+      rollen[t] = KONTER[wahl];
+      gewuerfelt = SCHIFFE[wahl].name;
+    }
+  }
+
+  /* Flottenweite Wirkungen einmal bestimmen — sie hängen an der
+     Zusammensetzung, nicht an der einzelnen Runde. */
+  function flottenwerte(f){
+    let bonus = 0, abschlag = 0, reflex = 0, siphon = 0, menge = 0;
+    for(const t in f){
+      const n = f[t]; if(!n) continue;
+      const d = SCHIFFE[t] || {};
+      menge += n;
+      if(d.flottenBonus) bonus = Math.max(bonus, d.flottenBonus);  // wirkt nicht kumulativ
+      if(d.feindAbschlag) abschlag += d.feindAbschlag * n;
+    }
+    return { flottenBonus:bonus, abschlag:Math.min(0.55, abschlag) };
+  }
+  const wEigen = flottenwerte(eigen), wFeind = flottenwerte(feind);
+
+  // Angesammelter, noch nicht tödlicher Schaden je Schiffstyp
+  const kontoEigen = {}, kontoFeind = {};
   const runden = [];
   for(let r = 1; r <= KAMPF_RUNDEN; r++){
     if(!flottenStaerke(eigen) || !flottenStaerke(feind)) break;
 
     // Beide Seiten feuern auf den Stand zu Rundenbeginn
-    const schadenAufFeind = schadenAusteilen(eigen, feind, 1);
-    const schadenAufUns   = schadenAusteilen(feind, eigen, panzerbonus);
+    /* Schiffe, die aus der Linie ausscheren, feuern getrennt — sie
+       suchen sich ihre Ziele im Hinterland statt in der Front. */
+    const linie = {}, ausscherer = {};
+    for(const t in eigen){
+      if(SCHIFFE[t] && SCHIFFE[t].umkehren) ausscherer[t] = eigen[t];
+      else linie[t] = eigen[t];
+    }
+    // Ionenstörer senken die Feuerkraft der Gegenseite
+    const eigenBonus = { flottenBonus: wEigen.flottenBonus };
+    const schadenAufFeind = schadenAusteilen(linie, feind, 1 - wFeind.abschlag, true, rollen, false, r, eigenBonus);
+    if(flottenStaerke(ausscherer)){
+      const extra = schadenAusteilen(ausscherer, feind, 1 - wFeind.abschlag, true, rollen, true, r, eigenBonus);
+      for(const t in extra) schadenAufFeind[t] = (schadenAufFeind[t]||0) + extra[t];
+    }
+    const schadenAufUns   = schadenAusteilen(feind, eigen, panzerbonus * (1 - wEigen.abschlag),
+                                             false, null, false, r, { flottenBonus: wFeind.flottenBonus });
 
-    const feindVerlust = verlusteAnwenden(feind, schadenAufFeind);
-    const eigenVerlust = verlusteAnwenden(eigen, schadenAufUns);
+    /* Spiegelkreuzer werfen zurück, was auf SIE gefeuert wurde — nicht
+       einen Anteil des Gesamtbeschusses. Sonst verschwindet die Wirkung,
+       sobald sie nur beigemischt sind statt die Flotte zu stellen. */
+    let reflektiert = 0;
+    for(const t in schadenAufUns){
+      const d = SCHIFFE[t]; if(!d || !d.reflex || !eigen[t]) continue;
+      reflektiert += schadenAufUns[t] * d.reflex;
+    }
+    if(reflektiert > 0){
+      const verteilung = schadenAusteilen(feind, feind, 0, false, null, false, r, null);
+      const summe = Object.values(verteilung).reduce((a,b)=>a+b,0) || 1;
+      for(const t in verteilung)
+        schadenAufFeind[t] = (schadenAufFeind[t]||0) + reflektiert * (verteilung[t]/summe);
+    }
+
+    /* Nanitensiphon fängt einen Teil des Beschusses ab, der die eigene
+       Linie trifft — gleiche Überlegung: an die Schiffe gekoppelt, die
+       tatsächlich da sind. */
+    let siphonKraft = 0;
+    for(const t in eigen){
+      const d = SCHIFFE[t]; if(d && d.siphon) siphonKraft += d.siphon * eigen[t];
+    }
+    if(siphonKraft > 0){
+      const eigenMenge = Object.values(eigen).reduce((a,b)=>a+b,0) || 1;
+      const quote = Math.min(0.35, siphonKraft / eigenMenge);
+      for(const t in schadenAufUns) schadenAufUns[t] *= (1 - quote);
+    }
+
+    const feindVerlust = verlusteAnwenden(feind, schadenAufFeind, kontoFeind);
+    const eigenVerlust = verlusteAnwenden(eigen, schadenAufUns, kontoEigen);
 
     runden.push({
       nummer: r,
@@ -1309,14 +2996,68 @@ function kampf(sysId, schiffe){
   const feindWeg = flottenStaerke(feind) === 0;
   const eigenWeg = flottenStaerke(eigen) === 0;
 
-  let bericht, beute = null;
+  /* --- Sonderregeln der Beuteschiffe nach dem Gefecht --- */
+  const schlepper = anzahlIm(eigen, "bergungsschlepper");
+  const zusatz = [];
+
+  // Wachfregatten gehen nicht verloren, sondern kehren angeschlagen heim
+  let instand = 0;
+  const wfVerlust = (schiffe.wachfregatte||0) - (eigen.wachfregatte||0);
+  if(wfVerlust > 0){
+    eigen.wachfregatte = (eigen.wachfregatte||0) + wfVerlust;
+    instand = wfVerlust;
+    zusatz.push(`${wfVerlust} Wachfregatten kehren angeschlagen zurück und werden instand gesetzt.`);
+  }
+
+  /* Logistiktender bergen einen Anteil der Verluste aller Klassen.
+     Bewusst als Anteil und nicht als feste Zahl: Bei kleinen Gefechten
+     soll ein Tender nicht mehr zurückholen, als überhaupt ausfiel. */
+  const tender = anzahlIm(eigen, "logistiktender");
+  if(tender > 0){
+    const quote = Math.min(0.45, SCHIFFE.logistiktender.bergung * tender);
+    let geborgen = 0;
+    for(const t in schiffe){
+      if(SCHIFFE[t] && SCHIFFE[t].verbrauch) continue;      // Drohnen sind weg
+      const verlust = schiffe[t] - (eigen[t]||0);
+      if(verlust <= 0) continue;
+      const zurueck = Math.floor(verlust * quote);
+      if(zurueck > 0){ eigen[t] = (eigen[t]||0) + zurueck; geborgen += zurueck; }
+    }
+    if(geborgen > 0){
+      instand += geborgen;
+      zusatz.push(`Logistiktender bergen ${geborgen} beschädigte Schiffe.`);
+    }
+  }
+
+  // Drohnenboote verbrauchen sich — sie kehren grundsätzlich nicht zurück
+  for(const t in eigen){
+    if(SCHIFFE[t] && SCHIFFE[t].verbrauch){
+      const weg = eigen[t];
+      delete eigen[t];
+      if(weg > 0) zusatz.push(`${weg} ${SCHIFFE[t].name} wurden im Einsatz verbraucht.`);
+    }
+  }
+
+  // Schrottjäger zerfallen nach jedem Gefecht — auch bei Sieg
+  if(eigen.schrottjaeger){
+    const muede = Math.floor(eigen.schrottjaeger * SCHROTT_VERSCHLEISS);
+    if(muede > 0){
+      eigen.schrottjaeger -= muede;
+      if(eigen.schrottjaeger <= 0) delete eigen.schrottjaeger;
+      zusatz.push(`${muede} Schrottjäger fallen durch Materialermüdung aus.`);
+    }
+  }
+
+  let bericht, beute = null, fragment = null;
   if(feindWeg){
     sys.piraten = null;
-    const wert = feindStart * 40 * art.beute;
+    const wert = feindStart * 40 * art.beute * (1 + schlepper * SCHLEPPER_BEUTE);
     beute = {};
     for(const r of ["erz","silikat","kupfer","legierung"])
       beute[r] = Math.floor(wert * (0.6 + Math.random()*0.6));
     bericht = `Sieg bei ${sys.name} — ${art.name} zerschlagen.`;
+    // Wracks geben Baupläne der Bauart preis, gegen die gekämpft wurde
+    fragment = fragmentWurf("gefecht", verband, schlepper);
   }else if(eigenWeg){
     sys.piraten.flotte = feind;
     bericht = `Niederlage bei ${sys.name} — die Flotte wurde aufgerieben.`;
@@ -1325,15 +3066,136 @@ function kampf(sysId, schiffe){
     bericht = `Unentschieden bei ${sys.name} — beide Seiten zogen sich zurück.`;
   }
 
-  return { ueberlebende: eigen, beute, bericht, runden,
+  if(gewuerfelt) zusatz.unshift(`Die Wandelrümpfe kämpften diesmal in der Rolle: ${gewuerfelt}.`);
+  if(fragment) zusatz.push(fragmentText(fragment));
+  if(zusatz.length) bericht += " " + zusatz.join(" ");
+
+  return { ueberlebende: eigen, beute, bericht, runden, instand,
            feindRest: flottenStaerke(feind) };
 }
 
+
+/* ------------------------------------------------------------
+   Bodenkampf
+   Bewusst nach demselben Muster wie der Raumkampf: acht Runden,
+   beide Seiten schlagen gleichzeitig zu, das Feuer verteilt sich
+   auf die Zieltypen nach ihrem Anteil. Wer die Konter kennt,
+   gewinnt mit weniger Truppen.
+   ------------------------------------------------------------ */
+function bodenLeben(typ){ return (TRUPPEN[typ].panzerung||0) * BODEN_PANZER_ZU_LEBEN + 30; }
+
+function bodenSchaden(angreifer, verteidiger, bonus){
+  const gesamt = truppenAnzahl(verteidiger);
+  if(!gesamt) return {};
+  const anteil = {}, schaden = {};
+  for(const t in verteidiger){ anteil[t] = verteidiger[t]/gesamt; schaden[t] = 0; }
+  for(const at in angreifer){
+    const n = angreifer[at]; if(!n) continue;
+    const roh = n * (TRUPPEN[at].angriff||0) * bonus * BODEN_SCHADEN_FAKTOR;
+    for(const zt in anteil){
+      const konter = (KONTER_BODEN[at] && KONTER_BODEN[at][zt]) || 1;
+      const streuung = 1 + (Math.random()*2 - 1) * BODEN_STREUUNG;
+      schaden[zt] += roh * anteil[zt] * konter * streuung;
+    }
+  }
+  return schaden;
+}
+
+// Gleiches Schadenskonto wie im Raumkampf — siehe verlusteAnwenden
+function bodenVerluste(heer, schaden, konto){
+  const verluste = {};
+  for(const t in heer){
+    if(!heer[t]) continue;
+    konto[t] = (konto[t] || 0) + (schaden[t] || 0);
+    const leben = bodenLeben(t);
+    const gefallen = Math.min(heer[t], Math.floor(konto[t] / leben));
+    if(gefallen > 0){
+      konto[t] -= gefallen * leben;
+      heer[t] -= gefallen; verluste[t] = gefallen;
+      if(heer[t] <= 0){ delete heer[t]; delete konto[t]; }
+    }
+  }
+  return verluste;
+}
+
+function bodenkampf(objId, truppen, bastion){
+  const obj = spiel.objekte[objId];
+  const eigen = { ...truppen };
+  const feind = { ...(obj.garnison || {}) };
+  const gelaende = gelaendeFaktor(obj.typ);
+  const runden = [];
+  /* Das Bastionsschiff setzt eigene Truppen ab, für die der
+     Geländevorteil nicht gilt. Sie werden deshalb getrennt geführt
+     und schlagen ohne den Verteidigerbonus zu. */
+  const bastionTruppen = (bastion||0) * SCHIFFE.bastionsschiff.bodentruppen;
+  const kontoEigen = {}, kontoFeind = {};
+
+  for(let r = 1; r <= BODEN_RUNDEN; r++){
+    if(!truppenAnzahl(eigen) || !truppenAnzahl(feind)) break;
+    const aufFeind = bodenSchaden(eigen, feind, 1);
+    // Bastionstruppen ignorieren das Gelände: ihr Anteil schlägt ungebremst zu
+    if(bastionTruppen > 0){
+      const extra = bodenSchaden({ panzer: bastionTruppen }, feind, 1);
+      for(const t in extra) aufFeind[t] = (aufFeind[t]||0) + extra[t];
+    }
+    const aufUns   = bodenSchaden(feind, eigen, gelaende);
+    const feindVerlust = bodenVerluste(feind, aufFeind, kontoFeind);
+    const eigenVerlust = bodenVerluste(eigen, aufUns, kontoEigen);
+    runden.push({ nummer:r, eigenVerlust, feindVerlust,
+                  eigenRest: truppenAnzahl(eigen), feindRest: truppenAnzahl(feind) });
+  }
+
+  const genommen = truppenAnzahl(feind) === 0 && truppenAnzahl(eigen) > 0;
+  return { ueberlebende: eigen, rest: feind, runden, genommen, gelaende };
+}
+
+/* Erobern: Die Welt wechselt mitsamt Bevölkerung und bereits
+   gebauten Distrikten den Besitzer. Sie zählt gegen die Höchstzahl. */
+function weltErobern(objId, uebrig){
+  const obj = spiel.objekte[objId];
+  const partei = obj.fraktion;
+  const k = neueKolonie(objId);
+  // Die Vorbesitzer haben schon gebaut — der Neuling erbt einen Teil davon
+  for(const d in obj.felder) k.distrikte[d] = Math.floor(obj.felder[d] * 0.4);
+  k.bev = Math.max(2, Math.round(truppenAnzahl(uebrig) * 0.15));
+  spiel.kolonien[objId] = k;
+  obj.fraktion = null;
+  delete obj.garnison;
+  delete spiel.handel[objId];
+  diploAendern(partei, BEZIEHUNG_INVASION);
+  return partei;
+}
+
 function missionAuswerten(m){
-  const sys = spiel.systeme[m.art === "sammeln" ? spiel.objekte[m.ziel].systemId : m.ziel];
+  const zielIstObjekt = (m.art === "sammeln" || m.art === "invasion");
+  const sys = spiel.systeme[m.art === "foerdern" ? (clusterVon(m.ziel)||{systemId:0}).systemId
+            : zielIstObjekt ? spiel.objekte[m.ziel].systemId : m.ziel];
   if(m.art === "erkunden"){
     sys.erkundet = true;
     m.bericht = `System ${sys.name} erkundet — ${sys.objekte.length} Objekte erfasst.`;
+    // Manchmal findet die Sonde nebenbei etwas
+    if(Math.random() < ANOMALIE_CHANCE){
+      const arten = Object.keys(ANOMALIEN);
+      const art = arten[Math.floor(Math.random()*arten.length)];
+      spiel.anomalien = spiel.anomalien || [];
+      spiel.anomalien.push({
+        id: Date.now() + Math.floor(Math.random()*1000),
+        art, systemId: sys.id, gefunden: Date.now(), erledigt: false,
+      });
+      m.bericht += ` Fundstück entdeckt: ${ANOMALIEN[art].name}.`;
+    }
+    /* Antike Zivilisationen geben einmalig je Welt ein Bruchstück
+       fremder Bauart her — die verlässlichste Quelle für die
+       Schwarm-Bauarten, und ganz ohne Kampf erreichbar. */
+    for(const oid of sys.objekte){
+      const o = spiel.objekte[oid];
+      if(o.typ === "antike" && !o.bergungGehoben){
+        o.bergungGehoben = true;
+        spiel.gesehen.schwarm = true;   // fremde Bauart wird dadurch bekannt
+        const fa = fragmentZiehen("schwarm");
+        if(fa) m.bericht += ` In den Ruinen: ${fragmentText(fa)}`;
+      }
+    }
     // Die Sonde bleibt erhalten und tritt den Rückflug an
   }
   else if(m.art === "besiedeln"){
@@ -1342,8 +3204,24 @@ function missionAuswerten(m){
     m.bericht = `${spiel.objekte[m.ziel].name} besiedelt.`;
   }
   else if(m.art === "sammeln"){
-    m.ladung = sammelErtrag(m.ziel, m.schiffe.frachter||0);
+    m.ladung = sammelErtrag(m.ziel, m.schiffe.frachter||0, m.schiffe.blockadebrecher||0);
     m.bericht = `Frachter beladen bei ${spiel.objekte[m.ziel].name}.`;
+    /* Trümmerfelder am Sammelort geben Bruchstücke preis. Ohne Kampf
+       weiss man nicht, von wem sie stammen — die Bauart ist zufällig. */
+    const f = fragmentWurf("truemmer", null, m.schiffe.bergungsschlepper||0);
+    if(f) m.bericht += " " + fragmentText(f);
+  }
+  else if(m.art === "invasion"){
+    invasionAnkunft(m, sys);
+  }
+  else if(m.art === "foerdern"){
+    const c = clusterVon(m.ziel);
+    if(!c){
+      m.bericht = "Der Cluster war bei Ankunft bereits aufgelöst — die Flotte kehrt um.";
+      m.abgebrochen = true;
+    }else{
+      m.bericht = `Förderbetrieb bei ${CLUSTER_ARTEN[c.art].name} aufgenommen.`;
+    }
   }
   else if(m.art === "angriff"){
     const e = kampf(sys.id, m.schiffe);
@@ -1351,25 +3229,116 @@ function missionAuswerten(m){
     m.ladung = e.beute;
     m.bericht = e.bericht;
     m.runden = e.runden;
+    m.instand = e.instand || 0;
+  }
+}
+
+/* Ankunft einer Invasionsflotte: Erst der Orbit, dann die Belagerung.
+   Steht noch ein Piratenverband im System, ist der Orbit nicht frei —
+   die unbewaffneten Landungsschiffe gehen dabei verloren. */
+function invasionAnkunft(m, sys){
+  const obj = spiel.objekte[m.ziel];
+  if(sys.piraten){
+    const verloren = m.schiffe.landungsschiff || 0;
+    m.schiffe = {}; m.truppen = {};
+    m.bericht = `Invasion von ${obj.name} gescheitert — der Orbit ist nicht frei. `
+              + `${verloren} Landungsschiffe wurden abgefangen.`;
+    m.abgebrochen = true;
+    return;
+  }
+  if(!obj.fraktion){
+    m.bericht = `${obj.name} ist bereits in eigener Hand — die Flotte kehrt um.`;
+    m.abgebrochen = true;
+    return;
+  }
+  m.belagerungBis = Date.now() + belagerungsdauer(m.ziel)*1000/TEMPO;
+  m.bericht = `Orbit über ${obj.name} gesichert. Die Belagerung hat begonnen.`;
+}
+
+function belagerungsdauer(objId){
+  const obj = spiel.objekte[objId];
+  const bev = truppenAnzahl(obj.garnison);
+  return Math.round(BELAGERUNG_GRUND + bev * BELAGERUNG_JE_KOPF / 4);
+}
+
+/* Der Sturm. Die Belagerung hat die Garnison bereits zermürbt —
+   wer wartet, verliert weniger eigene Leute. */
+function invasionSturm(m){
+  const obj = spiel.objekte[m.ziel];
+  if(!obj.fraktion){ m.bericht = `${obj.name} ist bereits genommen.`; m.truppen = {}; return; }
+
+  for(const t in obj.garnison){
+    obj.garnison[t] = Math.max(0, Math.round(obj.garnison[t] * (1 - BELAGERUNG_ZERMUERBUNG)));
+    if(!obj.garnison[t]) delete obj.garnison[t];
+  }
+
+  const e = bodenkampf(m.ziel, m.truppen || {}, anzahlIm(m.schiffe, "bastionsschiff"));
+  m.bodenrunden = e.runden;
+  m.truppen = e.ueberlebende;
+
+  if(e.genommen){
+    const partei = weltErobern(m.ziel, e.ueberlebende);
+    m.bericht = `${obj.name} erobert — ${PARTEIEN[partei].kurz} verliert eine Welt. `
+              + `Die Beziehung sinkt um ${Math.abs(BEZIEHUNG_INVASION)}.`;
+    // Eroberte Welten geben Baupläne der Sturmdoktrin preis
+    if(spiel.gesehen.tiefenwache){
+      const f = fragmentWurf("gefecht", "tiefenwache", 0);
+      if(f) m.bericht += " " + fragmentText(f);
+    }
+    // Die Überlebenden bleiben als Besatzung vor Ort
+    m.truppen = {};
+  }else if(!truppenAnzahl(e.ueberlebende)){
+    obj.garnison = e.rest;
+    m.bericht = `Landung auf ${obj.name} gescheitert — die Truppen wurden aufgerieben.`;
+  }else{
+    obj.garnison = e.rest;
+    m.bericht = `Sturm auf ${obj.name} abgebrochen — die Garnison hält noch `
+              + `${truppenAnzahl(e.rest)} Verbände. Die Truppen ziehen sich zurück.`;
   }
 }
 
 function missionHeimkehr(m){
+  // Trümmerfelder geben gelegentlich Baupläne her
+  if(m.art === "foerdern" && m.clusterArt){
+    const d = CLUSTER_ARTEN[m.clusterArt];
+    if(d && d.fragmentChance && Math.random() < d.fragmentChance){
+      const f = fragmentZiehen(null);
+      if(f) m.bericht = (m.bericht||"") + " " + fragmentText(f);
+    }
+  }
+  /* Wachfregatten kehren angeschlagen zurück statt zu sinken — die
+     Instandsetzung kostet nur einen Bruchteil des Neubaus. Reicht das
+     Lager nicht, wartet die Reparatur; verloren geht das Schiff nie. */
+  if(m.instand > 0){
+    // Pauschal nach dem Satz der Wachfregatte — sonst müsste die Mission
+    // festhalten, welche Klasse jeweils geborgen wurde
+    const k = {};
+    for(const r in SCHIFFE.wachfregatte.kosten)
+      k[r] = Math.round(SCHIFFE.wachfregatte.kosten[r] * WACHFREGATTE_REPARATUR * m.instand);
+    if(bezahlbar(k)) abbuchen(k);
+  }
   for(const t in m.schiffe) spiel.schiffe[t] = (spiel.schiffe[t]||0) + m.schiffe[t];
+  for(const t in (m.truppen||{})) spiel.truppen[t] = (spiel.truppen[t]||0) + m.truppen[t];
   if(m.ladung)
     for(const r in m.ladung) spiel.res[r] = (spiel.res[r]||0) + m.ladung[r];
+  if(m.ladungSelten)
+    for(const t in m.ladungSelten)
+      spiel.selten[t] = (spiel.selten[t]||0) + Math.floor(m.ladungSelten[t]);
 
   spiel.berichte = spiel.berichte || [];
   spiel.berichte.unshift({
     text: m.bericht,
     art: m.art,
-    ziel: (m.art === "sammeln" || m.art === "besiedeln")
+    ziel: (m.art === "sammeln" || m.art === "besiedeln" || m.art === "invasion")
           ? (spiel.objekte[m.ziel]?.name || "?")
           : (spiel.systeme[m.nachSys]?.name || "?"),
     ausgesandt: m.ausgesandt || m.schiffe,
     heimgekehrt: { ...m.schiffe },
     ladung: m.ladung,
     runden: m.runden || null,
+    bodenrunden: m.bodenrunden || null,
+    truppenAus: m.truppenAus || null,
+    truppenZurueck: { ...(m.truppen||{}) },
     zeit: Date.now(),
   });
   spiel.berichte = spiel.berichte.slice(0, 25);
@@ -1379,15 +3348,48 @@ function missionHeimkehr(m){
    11. AKTIONEN
    ============================================================ */
 // Verteilt eine Gesamtstärke nach der Mischung des Verbandes auf Schiffstypen
+/* Erzeugt eine Piratenflotte zu einer Zielstärke.
+   Wichtig: Nicht die Stückzahl wird vorgegeben, sondern die STÄRKE.
+   Sonst wäre ein Verband aus Schlachtschiffen bei gleicher Stückzahl
+   um ein Vielfaches gefährlicher als einer aus Jägern — und beim
+   Schwarm, dessen Mischung gewürfelt wird, schwankte die Gefahr
+   unkontrolliert. So bleibt jeder Verband berechenbar gefährlich;
+   was sich unterscheidet, ist die ZUSAMMENSETZUNG, nicht die Wucht. */
 function piratenFlotte(art, gesamt){
-  const m = PIRATEN_ARTEN[art].mischung, f = {};
-  for(const t in m){
-    const n = Math.round(gesamt * m[t]);
+  const d = PIRATEN_ARTEN[art];
+  const mischung = d.mischung || schwarmMischung();
+  const ziel = gesamt * PIRAT_STAERKE_JE_PUNKT * (d.staerkeFaktor || 1);
+
+  // Stärke einer gedachten Einheit dieser Mischung
+  let jeEinheit = 0;
+  for(const t in mischung){
+    if(!SCHIFFE[t] || !mischung[t]) continue;
+    jeEinheit += mischung[t] * ((SCHIFFE[t].angriff||0) + (SCHIFFE[t].panzerung||0)*0.5);
+  }
+  if(jeEinheit <= 0) return { jaeger: Math.max(1, Math.round(gesamt)) };
+
+  // Aschefahrer sind zahlreicher, als ihre Stärke vermuten lässt
+  const einheiten = (ziel / jeEinheit) * (d.mengenBonus || 1);
+  const f = {};
+  for(const t in mischung){
+    const n = Math.round(einheiten * mischung[t]);
     if(n > 0) f[t] = n;
   }
   if(!Object.keys(f).length) f.jaeger = 1;
   return f;
 }
+
+/* Zufällige Aufstellung für den Schwarm. Bewusst breit gestreut:
+   mal fast nur Jäger, mal fast nur Schwere. */
+function schwarmMischung(){
+  const arten = ["jaeger","zerstoerer","korvette","fregatte","kreuzer","schlachtschiff"];
+  const roh = arten.map(()=> Math.pow(Math.random(), 2));
+  const summe = roh.reduce((a,b)=>a+b,0) || 1;
+  const m = {};
+  arten.forEach((t,i)=> m[t] = roh[i]/summe);
+  return m;
+}
+
 function piratenStaerke(sys){
   if(!sys.piraten) return 0;
   let s = 0;
@@ -1430,11 +3432,61 @@ function kannKolonisieren(objId){
   if(obj.fraktion) return false;              // fremde Welt, nicht besiedelbar
   if(spiel.systeme[obj.systemId].piraten) return false;         // erst aufräumen
   if(flotteFrei("siedlerschiff") < 1) return false;
-  const art = OBJEKTE[obj.typ].art, z = zaehleKolonien();
-  if(art === "planet"  && z.planeten >= maxPlaneten()) return false;
-  if(art === "habitat" && z.habitate >= maxHabitate()) return false;
+  const t = OBJEKTE[obj.typ], z = zaehleKolonien();
+  if(!t.zaehltNicht){
+    if(t.art === "planet"  && z.planeten >= maxPlaneten()) return false;
+    if(t.art === "habitat" && z.habitate >= maxHabitate()) return false;
+  }
   return bezahlbar(kolonieKosten(objId));
 }
+/* Startet eine Invasion: Geleitschutz, Landungsschiffe und so viele
+   Truppen, wie der Transportraum hergibt. Wie beim Piratenangriff
+   wird alles Verfügbare geschickt — eine Teilauswahl wäre eine
+   Bedienlast ohne echten Gewinn. */
+/* Schickt alle freien Förderschiffe zum Cluster. Wie bei den anderen
+   Missionen keine Teilauswahl — sie wäre Bedienlast ohne echten Gewinn. */
+function foerderungStarten(clusterId){
+  const c = clusterVon(clusterId); if(!c) return;
+  const n = flotteFrei("foerderschiff"); if(n < 1) return;
+  if(spiel.missionen.some(m => m.art === "foerdern" && m.ziel === clusterId)) return;
+  starteMission("foerdern", clusterId, { foerderschiff: n });
+  speichern(); zeichnen();
+}
+
+function invasionStarten(objId){
+  const obj = spiel.objekte[objId];
+  if(!obj || !obj.fraktion) return;
+  if(spiel.systeme[obj.systemId].piraten) return;
+  const transport = flotteFrei("landungsschiff");
+  if(transport < 1) return;
+
+  const platz = transport * TRUPPEN_JE_LANDUNGSSCHIFF;
+  const truppen = {};
+  let genommen = 0;
+  // Gleichmässig aus allen Gattungen laden, damit die Mischung erhalten bleibt
+  const arten = Object.keys(TRUPPEN).filter(t => truppenFrei(t) > 0);
+  const gesamtFrei = arten.reduce((a,t)=>a+truppenFrei(t),0);
+  if(!gesamtFrei) return;
+  for(const t of arten){
+    const anteil = truppenFrei(t)/gesamtFrei;
+    const n = Math.min(truppenFrei(t), Math.floor(platz*anteil));
+    if(n > 0){ truppen[t] = n; genommen += n; }
+  }
+  // Restplatz auffüllen
+  for(const t of arten){
+    while(genommen < platz && truppenFrei(t) > (truppen[t]||0)){
+      truppen[t] = (truppen[t]||0)+1; genommen++;
+    }
+  }
+  if(!genommen) return;
+
+  const schiffe = { landungsschiff: Math.max(1, Math.ceil(genommen/TRUPPEN_JE_LANDUNGSSCHIFF)) };
+  // Geleitschutz mitschicken, falls vorhanden — Landungsschiffe sind wehrlos
+  for(const t of ["jaeger","korvette","kreuzer"]) if(flotteFrei(t) > 0) schiffe[t] = flotteFrei(t);
+
+  starteMission("invasion", objId, schiffe, truppen);
+}
+
 function kolonisieren(objId){
   if(!kannKolonisieren(objId)) return;
   abbuchen(kolonieKosten(objId));
@@ -1443,7 +3495,7 @@ function kolonisieren(objId){
 function baueDistrikt(id, s){
   const k = spiel.kolonien[id], obj = spiel.objekte[id];
   const max = obj.felder[s] || 0;
-  const kosten = distriktKosten(s);
+  const kosten = distriktKosten(s, id);
   if(k.bau || k.distrikte[s] >= max || !bezahlbar(kosten)) return;
   abbuchen(kosten);
   const dauer = bauzeit(kosten);
@@ -1493,15 +3545,30 @@ function zeitText(s){
   if(m) return `${m}:${String(r).padStart(2,"0")} min`;
   return `${r} s`;
 }
+function seltenZeile(selten){
+  if(!selten) return "";
+  return Object.keys(selten).map(t => {
+    const fehlt = (spiel.selten?.[t]||0) < selten[t];
+    return `<span class="${fehlt?"fehlt":""}" style="${fehlt?"":"color:"+SELTEN[t].farbe}">
+      ${SELTEN[t].name} ${z0(selten[t])}</span>`;
+  }).join("");
+}
+
+/* Kosten und Erträge tragen dasselbe Symbol wie der Streifen. Der Name
+   steht im Tooltip — bei vier bis fünf Posten nebeneinander sind
+   ausgeschriebene Namen die Hauptursache für Zeilenumbrüche. */
 function kostenZeile(kosten, dauer){
   let h="";
   for(const r in kosten)
-    h += `<span class="${(spiel.res[r]||0)<kosten[r]?"fehlt":""}">${RES_NAMEN[r]} ${z0(kosten[r])}</span>`;
+    h += `<span class="${(spiel.res[r]||0)<kosten[r]?"fehlt":""}" title="${RES_NAMEN[r]}"
+      style="color:var(--${r})">${resSymbol(r, 13)} <span style="color:var(--text)">${z0(kosten[r])}</span></span>`;
   if(dauer != null) h += `<span>${zeitText(dauer)}</span>`;
   return h;
 }
 function ertragText(ertrag){
-  return Object.keys(ertrag).map(r => `+${z0(ertrag[r])} ${RES_NAMEN[r]}`).join(" · ");
+  return Object.keys(ertrag).map(r =>
+    `<span title="${RES_NAMEN[r]}" style="color:var(--${r})">${resSymbol(r, 13)}
+      <span style="color:var(--text)">+${z0(ertrag[r])}</span></span>`).join(" ");
 }
 function fortschrittBalken(rest, dauer){
   return `<div class="schiene"><i style="width:${Math.min(100,Math.max(0,(1-rest/(dauer/TEMPO))*100))}%"></i></div>`;
@@ -1632,15 +3699,40 @@ function zeichnen(){
   let h = "";
   for(const r of RES){
     const rate = g.ein[r];
-    h += `<div class="posten" style="--ton:var(--${r})">
-      <div class="etikett">${RES_NAMEN[r]}</div>
-      <div class="stand">${z0(spiel.res[r])}</div>
-      <div class="fluss ${rate<0?"minus":""}">${rate>=0?"+":""}${z0(rate)}/h</div></div>`;
+    // Volles Lager sichtbar machen — sonst verfällt Ertrag unbemerkt
+    const anteil = g.lagergrenze ? spiel.res[r]/g.lagergrenze : 0;
+    const voll = anteil >= 0.995 && rate > 0;
+    const knapp = !voll && anteil >= 0.9 && rate > 0;
+    h += `<div class="posten" style="--ton:var(--${r})"
+        title="${RES_NAMEN[r]} — ${z0(spiel.res[r])} im Lager, ${(rate>=0?"+":"")+z0(rate)} je Stunde${
+          voll ? ", Lager voll" : ""}">
+      ${resSymbol(r, 17)}
+      <div class="werte-block">
+        <span class="stand"${voll?' style="color:var(--alarm)"':knapp?' style="color:var(--bernstein)"':''}>${z0(spiel.res[r])}</span>
+        <span class="fluss ${rate<0?"minus":""}"${voll?' style="color:var(--alarm)"':''}>${
+          voll ? "voll" : (rate>=0?"+":"")+z0(rate)}</span></div></div>`;
   }
-  h += `<div class="posten" style="--ton:var(--forschung)">
-      <div class="etikett">Forschung</div>
-      <div class="stand">${z0(spiel.forschung)}</div>
-      <div class="fluss" style="color:var(--forschung)">+${z0(g.forschung)}/h</div></div>`;
+  h += `<div class="posten" style="--ton:var(--forschung)"
+      title="Forschung — ${z0(spiel.forschung)} verfügbar, +${z0(g.forschung)} je Stunde">
+      ${resSymbol("forschung", 17)}
+      <div class="werte-block">
+        <span class="stand">${z0(spiel.forschung)}</span>
+        <span class="fluss" style="color:var(--forschung)">+${z0(g.forschung)}</span></div></div>`;
+  /* Seltene Stoffe in eigener Zeile mit Symbolen. Sie stehen bewusst nicht
+     im Hauptstreifen: Acht Kacheln plus Forschung sind die Grenze des
+     Lesbaren, und seltene Stoffe braucht man nur beim Schiffbau. */
+  /* Seltene Stoffe als vollwertige Kacheln — seit alle Ressourcen ein
+     Symbol tragen, gibt es keinen Grund mehr für eine Sonderzeile. Alle
+     Stoffe stehen immer im Streifen; er bricht in eine zweite Reihe um. */
+  for(const t in SELTEN){
+    const d = SELTEN[t], n = spiel.selten?.[t] || 0;
+    h += `<div class="posten" style="--ton:${d.farbe}" title="${d.name} — ${d.zweck}">
+      <svg width="17" height="17" viewBox="-8 -8 16 16" class="res-sym"
+        style="color:${d.farbe}">${d.symbol}</svg>
+      <div class="werte-block">
+        <span class="stand">${z0(n)}</span>
+        <span class="fluss" style="color:var(--matt)">${d.name}</span></div></div>`;
+  }
   document.getElementById("streifen").innerHTML = h;
 
   // Hauptreiter mit Zählern
@@ -1677,7 +3769,8 @@ function zeichnen(){
    ------------------------------------------------------------ */
 function seiteKarte(g){
   const sys = spiel.systeme[spiel.offenesSystem];
-  let h = `<div class="pfad">
+  let h = lageTafel();
+  h += `<div class="pfad">
     <button data-ansicht="galaxie">Galaxie</button>`;
   if(spiel.ansicht !== "galaxie") h += `<span>›</span><button data-ansicht="system">${sys.name}</button>`;
   if(spiel.ansicht === "objekt") h += `<span>›</span><span>${spiel.objekte[spiel.auswahl].name}</span>`;
@@ -1687,7 +3780,63 @@ function seiteKarte(g){
 
   if(spiel.ansicht === "objekt")
     h += `<div style="margin-top:12px">${objektTafel(spiel.auswahl, g)}</div>`;
-  else if(spiel.ansicht === "galaxie"){
+  else if(spiel.ansicht === "system"){
+    h += clusterTafel(sys.id);
+  }
+  if(spiel.ansicht === "galaxie"){
+    // Cluster aller Systeme, damit man sie nicht suchen muss
+    const alle = spiel.cluster || [];
+    if(alle.length){
+      h += `<div class="rubrik"><h2>Ressourcencluster</h2>
+        <span class="zusatz">${alle.length} in der Galaxie</span></div>`;
+      for(const c of alle){
+        const d = CLUSTER_ARTEN[c.art];
+        const rest = (c.bisAb - Date.now())/1000;
+        const laeuft = spiel.missionen.find(m => m.art === "foerdern" && m.ziel === c.id);
+        h += `<div class="posten-zeile" style="border-left:2px solid ${d.farbe}">
+          <div class="rumpf">
+            <div class="bezeichnung" style="color:${d.farbe}">${d.name}
+              <span class="stufe">${z0(c.vorrat)} übrig</span></div>
+            <div class="erlaeuterung">System ${spiel.systeme[c.systemId].name} ·
+              löst sich auf in ${zeitText(rest*TEMPO)}
+              ${d.selten ? `<br><span style="color:${d.farbe}">Liefert ${SELTEN[d.selten].name} —
+                ${SELTEN[d.selten].zweck}</span>` : ""}</div></div>
+          ${laeuft ? `<span class="stufe" style="color:var(--signal)">Förderung läuft</span>`
+                   : `<button data-cluster="${c.id}"
+                       ${flotteFrei("foerderschiff")?"":"disabled"}>Fördern</button>`}</div>`;
+      }
+    }
+
+    // Offene Fundstücke — warten, bis man Zeit hat
+    const offen = (spiel.anomalien||[]).filter(a => !a.erledigt);
+    if(offen.length){
+      h += `<div class="rubrik"><h2>Fundstücke</h2>
+        <span class="zusatz">${offen.length} unerschlossen</span></div>`;
+      for(const a of offen){
+        const d = ANOMALIEN[a.art];
+        h += `<div class="posten-zeile" style="border-left:2px solid ${d.farbe}">
+          <div class="rumpf">
+            <div class="bezeichnung" style="color:${d.farbe}">${d.name}</div>
+            <div class="erlaeuterung">System ${spiel.systeme[a.systemId].name} · ${d.text}</div></div>
+          <button data-anomalie="${a.id}">Untersuchen</button></div>`;
+      }
+    }
+
+    // Übersicht der strategischen Vorkommen
+    const vb = vorkommenBesitz();
+    const hat = Object.keys(STRATEGISCH).filter(v => vb.zahl[v] > 0);
+    h += `<div class="rubrik"><h2>Strategische Vorkommen</h2>
+      <span class="zusatz">${hat.length} von ${Object.keys(STRATEGISCH).length} erschlossen</span></div>`;
+    for(const v in STRATEGISCH){
+      const d = STRATEGISCH[v], n = vb.zahl[v], w = vb.wirksam[v];
+      h += `<div class="posten-zeile ${n?"":"erschoepft"}">
+        <div class="rumpf">
+          <div class="bezeichnung" style="color:${n?d.farbe:"var(--matt)"}">${d.name}
+            <span class="stufe">${n} besiedelt${n>w?` · ${w} wirksam`:""}</span></div>
+          <div class="erlaeuterung">${n ? d.wirkung
+            : "Vorkommen auf: " + d.vorkommenAuf.map(t=>OBJEKTE[t]?.name||t).join(", ")}</div></div>
+        <div class="zahl" style="color:${n?d.farbe:"var(--schwach)"}">${w}/${d.maxStufen}</div></div>`;
+    }
     if(spiel.missionen.length){
       h += `<div class="rubrik"><h2>Unterwegs</h2>
         <span class="zusatz">${spiel.missionen.length} Flüge</span></div>`;
@@ -1708,6 +3857,22 @@ function seiteKarte(g){
           <div class="zahl" style="color:${sym.farbe}">${zeitText(rest*TEMPO)}</div></div>`;
       }
     }
+    /* Legende der Ressourcenzeichen. Tooltips helfen auf dem Handy nicht,
+       deshalb gehört die Zuordnung einmal ausgeschrieben ins Spiel. */
+    h += `<div class="rubrik"><h2>Ressourcenzeichen</h2>
+      <span class="zusatz">im Streifen oben</span></div>
+      <div class="flaeche"><div style="display:flex;flex-wrap:wrap;gap:9px 18px">`;
+    for(const r of RES)
+      h += `<span style="display:flex;align-items:center;gap:6px;color:var(--${r});font-size:12.5px">
+        ${resSymbol(r, 15)}<span style="color:var(--matt)">${RES_NAMEN[r]}</span></span>`;
+    h += `<span style="display:flex;align-items:center;gap:6px;color:var(--forschung);font-size:12.5px">
+        ${resSymbol("forschung", 15)}<span style="color:var(--matt)">Forschung</span></span>`;
+    for(const t in SELTEN)
+      h += `<span style="display:flex;align-items:center;gap:6px;color:${SELTEN[t].farbe};font-size:12.5px">
+        <svg width="15" height="15" viewBox="-8 -8 16 16" class="res-sym">${SELTEN[t].symbol}</svg>
+        <span style="color:var(--matt)">${SELTEN[t].name}</span></span>`;
+    h += `</div></div>`;
+
     h += `<div class="rubrik"><h2>Ablesen</h2><span class="zusatz">Ein System anklicken zum Öffnen</span></div>
       <div class="flaeche"><div class="erlaeuterung">
       Erkundete Systeme zeigen ihren Stern, unerkundete einen grauen Punkt. Ein Ring markiert eigene
@@ -1730,6 +3895,10 @@ const FLUG_SYMBOL = {
   besiedeln: { farbe:"var(--nahrung)",    name:"Siedlerschiff",
     form:(x,y,w)=>`<g transform="translate(${x} ${y}) rotate(${w})">
       <path d="M3 0 L-2 2 L-1 0 L-2 -2 Z" fill="var(--nahrung)"/></g>` },
+  foerdern:  { farbe:"var(--signal)",     name:"Förderflotte",
+    form:(x,y,w)=>`<g transform="translate(${x} ${y}) rotate(${w})">
+      <rect x="-2.6" y="-1.4" width="5" height="2.8" rx="0.6" fill="var(--signal)"/>
+      <circle cx="2.8" cy="0" r="0.9" fill="var(--signal)"/></g>` },
   sammeln:   { farbe:"var(--kupfer)",     name:"Frachter",
     form:(x,y,w)=>`<g transform="translate(${x} ${y}) rotate(${w})">
       <rect x="-2.2" y="-1.4" width="4.4" height="2.8" rx="0.5" fill="var(--kupfer)"/>
@@ -1738,6 +3907,10 @@ const FLUG_SYMBOL = {
     form:(x,y,w)=>`<g transform="translate(${x} ${y}) rotate(${w})">
       <path d="M3.4 0 L-2.4 2.4 L-1 0 L-2.4 -2.4 Z" fill="var(--alarm)"/>
       <path d="M-1 0 L-3.4 0" stroke="var(--alarm)" stroke-width="0.5"/></g>` },
+  invasion:  { farbe:"var(--bernstein)", name:"Invasionsflotte",
+    form:(x,y,w)=>`<g transform="translate(${x} ${y}) rotate(${w})">
+      <path d="M3.2 0 L-2 2 L-2 -2 Z" fill="var(--bernstein)"/>
+      <rect x="-3.4" y="-1.2" width="1.6" height="2.4" rx="0.4" fill="var(--bernstein)"/></g>` },
 };
 
 // Zeichnet alle laufenden Flüge zwischen den Systemen
@@ -1820,7 +3993,8 @@ function systemKarte(sys){
   if(sys.piraten){
     const art = PIRATEN_ARTEN[sys.piraten.art];
     const feindStaerke = piratenStaerke(sys);
-    const kampftypen = ["jaeger","korvette","kreuzer"];
+    // Alle kampffähigen Schiffe, auch die neuen schweren und die Beuteschiffe
+    const kampftypen = Object.keys(SCHIFFE).filter(t => (SCHIFFE[t].angriff||0) > 0);
 
     // Eigene Kampfkraft und wie gut sie zur gegnerischen Mischung passt
     let eigen = 0, eigenAnzahl = 0;
@@ -1829,7 +4003,7 @@ function systemKarte(sys){
       eigenAnzahl += n;
       let schnitt = 0, ziele = 0;
       for(const ft in sys.piraten.flotte){
-        schnitt += (KONTER[t]?.[ft] || 1) * sys.piraten.flotte[ft];
+        schnitt += (konterZeile(t)?.[ft] || 1) * sys.piraten.flotte[ft];
         ziele += sys.piraten.flotte[ft];
       }
       const passung = ziele ? schnitt/ziele : 1;
@@ -1854,7 +4028,7 @@ function systemKarte(sys){
     for(const t of kampftypen){
       let schnitt = 0, ziele = 0;
       for(const ft in sys.piraten.flotte){
-        schnitt += (KONTER[t]?.[ft] || 1) * sys.piraten.flotte[ft];
+        schnitt += (konterZeile(t)?.[ft] || 1) * sys.piraten.flotte[ft];
         ziele += sys.piraten.flotte[ft];
       }
       const w = ziele ? schnitt/ziele : 1;
@@ -1866,12 +4040,21 @@ function systemKarte(sys){
         <strong>${art.name} in ${sys.name}</strong> · ${piratenAnzahl(sys)} Schiffe
         · Stärke <span class="zahl">${z0(feindStaerke)}</span><br>
         <span style="color:var(--matt)">${art.beschreibung}</span><br>
-        <span style="color:var(--matt)">Verband: ${feindListe}</span></div>
+        <span style="color:var(--matt)">Verband: ${feindListe}</span><br>
+        <span style="color:var(--schwach)">${art.geschichte}</span></div>
       <div class="meldung ${lage}">
         Ihre Flotte: ${eigenListe} · gewichtete Stärke <span class="zahl">${z0(eigen)}</span><br>
         ${urteil}${bester && besterWert > 1.15
           ? ` <span style="color:var(--signal)">${SCHIFFE[bester].name} sind gegen diesen Verband besonders wirksam (×${besterWert.toFixed(2)}).</span>` : ""}
+        <br><span style="color:var(--bernstein)">${art.antwort}</span>
+        ${art.verhalten === "wechselnd"
+          ? `<br><span style="color:var(--schwach)">Die Aufstellung ändert sich bei jedem
+             Zusammentreffen — eine gezielte Vorbereitung ist nicht möglich.</span>` : ""}
       </div>
+      ${art.verhalten === "angebot"
+        ? `<div class="erlaeuterung">Die Kartellflotte greift nicht an. Ein Gefecht ist
+           möglich, aber sie ist auch als Handelspartner zu haben.</div>` : ""}
+      ${aufstellungTafel(Object.fromEntries(kampftypen.map(t=>[t,flotteFrei(t)])))}
       <button data-angriff="${sys.id}" ${eigenAnzahl<=0?"disabled":""} style="margin-top:9px">
         ${eigenAnzahl<=0?"Keine Flotte":"Gesamte Flotte entsenden"}</button></div>`;
   }
@@ -1881,20 +4064,43 @@ function systemKarte(sys){
     <image href="${stern.bild}" x="${50-sr}" y="${50-sr}" width="${sr*2}" height="${sr*2}"
       preserveAspectRatio="xMidYMid meet"/>`;
 
-  const n = sys.objekte.length;
-  sys.objekte.forEach((objId, i) => {
+  /* --- Etappe 31b: Monde kreisen um ihre Planeten -----------------
+     Monde bekommen keine eigene Bahn um den Stern mehr, sondern hängen
+     als Trabanten am nächstgelegenen Planeten ihres Systems. Gibt es
+     keinen Planeten (reines Habitatsystem), bleibt der Mond auf einer
+     eigenen Bahn — sonst hinge er im Leeren. */
+  const monde = {}, haupt = [];
+  const planeten = sys.objekte.filter(id => {
+    const t = OBJEKTE[spiel.objekte[id].typ];
+    return t.art === "planet" && spiel.objekte[id].typ !== "mond";
+  });
+  sys.objekte.forEach(id => {
+    if(spiel.objekte[id].typ === "mond" && planeten.length){
+      // Monde reihum den Planeten zuordnen, damit sie sich verteilen
+      const mutter = planeten[Object.keys(monde).length ?
+        (Object.values(monde).flat().length % planeten.length) : 0];
+      (monde[mutter] = monde[mutter] || []).push(id);
+    }else haupt.push(id);
+  });
+
+  /* Bahnabstände so wählen, dass die äusserste Bahn samt Beschriftung
+     im Bild bleibt — vorher liefen weite Bahnen aus dem Rahmen. */
+  const n = haupt.length;
+  const innen = 15 + sr*0.9;
+  const MAX_BAHN = 41;
+  const schritt = n > 1 ? Math.min(10.2, (MAX_BAHN - innen)/(n-1)) : 0;
+
+  let texte = "";   // Beschriftungen in eigener Schicht, immer im Vordergrund
+
+  haupt.forEach((objId, i) => {
     const o = spiel.objekte[objId], def = OBJEKTE[o.typ];
-    const bahn = 15 + sr*0.9 + i*(n > 4 ? 8.4 : 10.2);
+    const bahn = innen + i*schritt;
     // Winkel so verteilen, dass sich benachbarte Objekte nicht überlagern
     const winkel = 0.55 + i*2.399;
     const x = 50 + Math.cos(winkel)*bahn, y = 50 + Math.sin(winkel)*bahn*0.55;
     const kolonie = !!spiel.kolonien[objId];
     const gr = def.art === "planet" ? 4.0 : 3.2;     // Radius der Darstellung
     const bild = BILDER[o.typ];
-
-    // Beschriftung nach unten, ausser das Objekt liegt am unteren Rand
-    const untenFrei = y < 66;
-    const ty = untenFrei ? y + gr + 3.6 : y - gr - 4.4;
 
     inhalt += `<ellipse cx="50" cy="50" rx="${bahn}" ry="${bahn*0.55}" fill="none"
                 stroke="var(--kante)" stroke-width="0.2" opacity=".55"/>
@@ -1908,27 +4114,58 @@ function systemKarte(sys){
             stroke-dasharray="1.6 1.2"/>`:""}`;
 
     if(bild){
-      // Eigenes Bild als Scheibe einsetzen
       inhalt += `<image href="${bild}" x="${x-gr}" y="${y-gr}"
           width="${gr*2}" height="${gr*2}" preserveAspectRatio="xMidYMid meet"/>`;
     }else{
-      // Ohne Bild: farbiger Punkt wie bisher
       inhalt += `<circle cx="${x}" cy="${y}" r="${gr*0.8}" fill="${def.farbe}"
           ${def.art==="habitat"?'stroke="var(--text)" stroke-width="0.28" stroke-dasharray="1 0.9"':""}/>`;
     }
+    inhalt += `</g>`;
 
-    // Schrift mit dunklem Rand, damit sie über allem lesbar bleibt
-    const zeile2 = untenFrei ? ty + 3.4 : ty - 3.4;
-    inhalt += `<text x="${x}" y="${untenFrei ? ty : zeile2}" text-anchor="middle" font-size="2.9"
+    // Beschriftung IMMER unterhalb des Objekts, in der Vordergrund-Schicht
+    const ty = y + gr + 3.6;
+    texte += `<text x="${x}" y="${ty}" text-anchor="middle" font-size="2.9"
         font-weight="600" fill="var(--text)" stroke="#060b13" stroke-width="0.9"
         paint-order="stroke" stroke-linejoin="round">${o.name}</text>
-      <text x="${x}" y="${untenFrei ? zeile2 : ty}" text-anchor="middle" font-size="2.4"
+      <text x="${x}" y="${ty+3.4}" text-anchor="middle" font-size="2.4"
         fill="${o.fraktion ? PARTEIEN[o.fraktion].farbe : "var(--matt)"}"
         stroke="#060b13" stroke-width="0.8"
         paint-order="stroke" stroke-linejoin="round">${o.fraktion
-          ? PARTEIEN[o.fraktion].kurz : def.name}</text>
-      </g>`;
+          ? PARTEIEN[o.fraktion].kurz : def.name}</text>`;
+
+    // --- Trabanten dieses Planeten ---
+    (monde[objId]||[]).forEach((mondId, mi) => {
+      const mo = spiel.objekte[mondId];
+      const mBahn = gr + 2.8 + mi*2.1;
+      const mWinkel = 0.9 + mi*2.1;
+      const mx = x + Math.cos(mWinkel)*mBahn, my = y + Math.sin(mWinkel)*mBahn*0.6;
+      const mKol = !!spiel.kolonien[mondId];
+      const mgr = 1.5;
+      inhalt += `<ellipse cx="${x}" cy="${y}" rx="${mBahn}" ry="${mBahn*0.6}" fill="none"
+          stroke="var(--kante)" stroke-width="0.16" opacity=".5"/>
+        <g class="punkt" data-objekt="${mondId}">
+          ${spiel.auswahl===mondId?`<circle cx="${mx}" cy="${my}" r="${mgr+1.4}" fill="none"
+              stroke="var(--bernstein)" stroke-width="0.4"/>`:""}
+          ${mKol?`<circle cx="${mx}" cy="${my}" r="${mgr+0.8}" fill="none"
+              stroke="var(--signal)" stroke-width="0.4"/>`:""}
+          ${BILDER.mond
+            ? `<image href="${BILDER.mond}" x="${mx-mgr}" y="${my-mgr}" width="${mgr*2}"
+                height="${mgr*2}" preserveAspectRatio="xMidYMid meet"/>`
+            : `<circle cx="${mx}" cy="${my}" r="${mgr*0.85}" fill="${OBJEKTE.mond.farbe}"/>`}
+        </g>`;
+      /* Mondnamen nur bei Auswahl oder eigener Kolonie — dauerhaft
+         beschriftet kollidieren sie mit dem Namen ihres Planeten. Der
+         Name erscheint beim Anklicken ohnehin in der Objekttafel. */
+      if(spiel.auswahl === mondId || mKol)
+        texte += `<text x="${mx}" y="${my+mgr+2.6}" text-anchor="middle" font-size="2.0"
+            fill="var(--matt)" stroke="#060b13" stroke-width="0.7"
+            paint-order="stroke" stroke-linejoin="round">${mo.name}</text>`;
+    });
   });
+
+  // Textschicht zuletzt: Namen liegen über allen Bahnen und Scheiben,
+  // fangen aber keine Klicks ab
+  inhalt += `<g style="pointer-events:none">${texte}</g>`;
 
   return kopf + `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">${inhalt}</svg>`;
 }
@@ -1948,6 +4185,296 @@ function seiteKolonie(g){
       ${spiel.objekte[id].name}${k.bau?" ·":""}</button>`;
   }
   h += `</div>` + objektTafel(+spiel.auswahl, g, true);
+  return h;
+}
+
+// Zeigt Bewohnbarkeit, Besonderheiten und ein etwaiges Vorkommen
+function weltEigenschaften(obj, def){
+  const vk = obj.vorkommen ? STRATEGISCH[obj.vorkommen] : null;
+  const hinweise = [];
+  const bew = def.ohneBevoelkerung ? 0 : (def.bewohnbarkeit != null ? def.bewohnbarkeit : 1);
+  hinweise.push(`Bewohnbarkeit ${Math.round(bew*100)} %`);
+  if(def.ohneBevoelkerung) hinweise.push("keine Bewohner möglich — reiner Automatikbetrieb");
+  if(def.zaehltNicht)      hinweise.push("zählt gegen keine Höchstzahl");
+  if(def.distriktKosten)   hinweise.push(`Distrikte ${Math.round((def.distriktKosten-1)*100)} % teurer`);
+
+  let h = `<div class="erlaeuterung" style="margin-top:9px">${hinweise.join(" · ")}</div>`;
+  if(vk){
+    h += `<div class="meldung gut" style="border-left-color:${vk.farbe}">
+      <strong style="color:${vk.farbe}">Vorkommen: ${vk.name}</strong><br>
+      <span style="color:var(--matt)">${vk.beschreibung}</span><br>
+      ${vk.wirkung} — gilt reichsweit, sobald diese Welt besiedelt ist.</div>`;
+  }
+  return h;
+}
+
+/* Ressourcencluster eines Systems. Zeigt Restvorrat, verbleibende Standzeit
+   und die geschätzte Förderdauer mit der verfügbaren Flotte — damit die
+   Entscheidung "welchen Cluster zuerst" auf Zahlen beruht und nicht auf Gefühl. */
+function clusterTafel(sysId){
+  const liste = clusterImSystem(sysId);
+  if(!liste.length) return "";
+  let h = `<div class="rubrik"><h2>Ressourcencluster</h2>
+    <span class="zusatz">${liste.length} vorhanden</span></div>`;
+
+  for(const c of liste){
+    const d = CLUSTER_ARTEN[c.art];
+    const rest = (c.bisAb - Date.now())/1000;
+    const anteil = c.vorrat / c.anfangsvorrat;
+    const laeuft = spiel.missionen.find(m => m.art === "foerdern" && m.ziel === c.id);
+    const frei = flotteFrei("foerderschiff");
+    const dauer = frei ? c.vorrat / (frei * SCHIFFE.foerderschiff.foerderrate) * 3600 : 0;
+    const ergibt = d.gibtSelten
+      ? Object.keys(d.gibtSelten).map(t => SELTEN[t].name).join(" und ")
+      : Object.keys(d.gibt).map(r => RES_NAMEN[r]).join(" und ");
+
+    h += `<div class="posten-zeile"><div class="rumpf">
+      <div class="bezeichnung" style="color:${d.farbe}">${d.name}
+        <span class="stufe">${z0(c.vorrat)} übrig</span></div>
+      <div class="erlaeuterung">${d.text}<br>
+        Ergibt ${ergibt}. Löst sich auf in <span class="zahl">${zeitText(rest*TEMPO)}</span>.
+        ${frei ? `Mit ${frei} Förderschiffen dauert der Abbau
+          <span class="zahl">${zeitText(dauer)}</span>.`
+               : `<span style="color:var(--bernstein)">Keine Förderschiffe verfügbar.</span>`}
+        ${dauer > rest*TEMPO ? `<br><span style="color:var(--bernstein)">Die Zeit reicht nicht
+          für den ganzen Vorrat — der Rest bleibt ungehoben.</span>` : ""}</div>
+      ${fortschrittBalken(anteil*100, 100)}</div>
+      ${laeuft
+        ? `<span class="stufe" style="color:var(--signal)">Förderung läuft</span>`
+        : `<button data-cluster="${c.id}" ${frei?"":"disabled"}>Förderflotte senden</button>`}</div>`;
+  }
+  return h;
+}
+
+/* Offene Entscheidungen und Warnungen — steht ganz oben, damit man es
+   beim Öffnen sieht und nicht im Berichtsstapel suchen muss. */
+function lageTafel(){
+  let h = "";
+
+  // --- Angekündigter Überfall ---
+  const u = spiel.ueberfall;
+  if(u && spiel.objekte[u.ziel]){
+    const rest = (u.faelligAb - Date.now())/1000;
+    let abwehr = eigeneGarnison(u.ziel) * 12;
+    for(const t in spiel.schiffe) abwehr += flotteFrei(t) * ((SCHIFFE[t].angriff||0) + (SCHIFFE[t].panzerung||0)*0.5);
+    const gegner = u.staerke * PIRAT_STAERKE_JE_PUNKT;
+    const reicht = abwehr >= gegner;
+    h += `<div class="meldung ${reicht?"gut":"rot"}" style="margin-bottom:10px">
+      <strong>${PIRATEN_ARTEN[u.verband].name} kündigt einen Zugriff an</strong> —
+      Ziel: ${spiel.objekte[u.ziel].name}, in ${zeitText(rest*TEMPO)}<br>
+      <span style="color:var(--matt)">Abwehrkraft vor Ort
+        <span class="zahl">${z0(abwehr)}</span> gegen <span class="zahl">${z0(gegner)}</span>.
+        ${reicht ? "Die Verteidigung sollte halten."
+                 : "Zu schwach — holen Sie Flotten zurück, sonst werden Vorräte geplündert."}</span><br>
+      <span style="color:var(--schwach)">Anlagen, Distrikte und Bevölkerung sind nie betroffen.</span></div>`;
+  }
+
+  // --- Offenes Ereignis ---
+  const e = spiel.ereignis;
+  if(e && EREIGNISSE[e.art]){
+    const d = EREIGNISSE[e.art];
+    const rest = (e.offenBis - Date.now())/1000;
+    h += `<div class="flaeche" style="margin-bottom:10px;border-left:3px solid var(--bernstein)">
+      <div class="rubrik" style="margin-top:0"><h2>${d.name}</h2>
+        <span class="zusatz">Frist ${zeitText(rest*TEMPO)}</span></div>
+      <div class="erlaeuterung" style="margin-bottom:8px">${d.text}</div>`;
+    d.wahl.forEach((w,i)=>{
+      const geht = !w.kosten || bezahlbar(w.kosten);
+      h += `<div class="posten-zeile"><div class="rumpf">
+        <div class="bezeichnung">${w.text}</div>
+        <div class="erlaeuterung">${w.hinweis||""}</div>
+        ${w.kosten?`<div class="werte">${kostenZeile(w.kosten,0)}</div>`:""}</div>
+        <button data-ereignis="${i}" ${geht?"":"disabled"}>Wählen</button></div>`;
+    });
+    h += `<div class="erlaeuterung" style="margin-top:6px;color:var(--schwach)">
+      Läuft die Frist ab, wird von selbst die folgenlose Möglichkeit gewählt.
+      Verpassen kostet nur den möglichen Gewinn.</div></div>`;
+  }
+  return h;
+}
+
+/* Aufstellung einer Flotte nach Zonen — als Balken plus Klartext.
+   Ohne diese Anzeige bliebe die Zonenwirkung unsichtbar, und der
+   Spieler verlöre Flotten, ohne den Grund zu erkennen. */
+function aufstellungTafel(flotte){
+  const je = { front:0, mitte:0, hinten:0 };
+  let gesamt = 0;
+  for(const t in flotte){
+    const n = flotte[t]; if(!n) continue;
+    je[zoneVon(t)] += n; gesamt += n;
+  }
+  if(!gesamt) return "";
+
+  const farben = { front:"var(--alarm)", mitte:"var(--bernstein)", hinten:"var(--signal)" };
+  let balken = `<div style="display:flex;height:9px;border-radius:2px;overflow:hidden;
+    border:1px solid var(--kante);margin:5px 0">`;
+  for(const z of ["front","mitte","hinten"]){
+    if(!je[z]) continue;
+    balken += `<div style="width:${(je[z]/gesamt*100).toFixed(1)}%;background:${farben[z]}"></div>`;
+  }
+  balken += `</div>`;
+
+  const text = ["front","mitte","hinten"].filter(z=>je[z])
+    .map(z=>`<span style="color:${farben[z]}">${ZONEN[z].name}: ${je[z]}</span>`).join(" · ");
+
+  // Die eigentliche Warnung: ohne Front zieht das Hinterland alles Feuer
+  const deckung = deckungsgrad(flotte);
+  let hinweis = "";
+  if(deckung < 0.4 && (je.hinten + je.mitte) > 0)
+    hinweis = `<div style="color:var(--alarm);margin-top:3px">Zu wenig vordere Linie
+      (Deckung ${Math.round(deckung*100)} %) — das Feuer trifft die schweren Schiffe
+      fast ungebremst.</div>`;
+  else if(je.front / gesamt > 0.85)
+    hinweis = `<div style="color:var(--bernstein);margin-top:3px">Fast nur vordere Linie —
+      viel Deckung, wenig Durchschlagskraft.</div>`;
+  else
+    hinweis = `<div style="color:var(--matt);margin-top:3px">Deckung
+      ${Math.round(deckung*100)} % — die hinteren Schiffe sind entsprechend geschützt.</div>`;
+
+  return `<div class="erlaeuterung">Aufstellung: ${text}${balken}${hinweis}</div>`;
+}
+
+/* Lagebild vor einer Invasion.
+   Zeigt Garnison, Gelände, eigene Truppen und ein ehrliches Urteil —
+   dieselbe Machart wie die Piratentafel im System, damit der Spieler
+   nicht zwei verschiedene Sprachen lernen muss. */
+/* ------------------------------------------------------------
+   Blaupausen  (Etappe 26)
+   Die Anzeige gehört zur Mechanik, nicht zur Ausstattung: Wer nicht
+   sieht, dass ihm ein Stück von vier fehlt, hat keinen Grund
+   weiterzusuchen. Unbekannte Bauarten bleiben verdeckt — man erfährt
+   von einem Schiff dadurch, dass man ihm begegnet.
+   ------------------------------------------------------------ */
+function blaupausenTafel(){
+  let h = `<div class="rubrik"><h2>Blaupausen</h2>
+    <span class="zusatz">Bergemarken <span class="zahl">${spiel.bergemarken||0}</span></span></div>`;
+
+  h += `<div class="erlaeuterung" style="margin-bottom:8px">Erbeutete Baupläne der
+    Piratenverbände. Man findet Stücke der Bauart, gegen die man gekämpft hat —
+    doppelte Funde werden zu Bergemarken, mit denen sich ein fehlendes Stück
+    kaufen lässt.</div>`;
+
+  // Nach Verband gruppiert, damit die Herkunft ablesbar bleibt
+  for(const vid in PIRATEN_ARTEN){
+    const bauarten = Object.keys(BAUARTEN).filter(b => BAUARTEN[b].verband === vid);
+    if(!bauarten.length) continue;
+    const bekannt = !!spiel.gesehen[vid];
+    h += `<div class="rubrik" style="margin-top:10px"><h2 style="font-size:12px">
+      ${bekannt ? PIRATEN_ARTEN[vid].name : "Unbekannter Verband"}</h2></div>`;
+
+    for(const b of bauarten){
+      const d = BAUARTEN[b];
+      const habe = fragmentStand(b), braucht = d.teile, fertig = bauartFertig(b);
+      if(!bekannt){
+        h += `<div class="posten-zeile"><div class="rumpf">
+          <div class="bezeichnung" style="color:var(--schwach)">? ? ?
+            <span class="stufe">${braucht} Teile</span></div>
+          <div class="erlaeuterung">Noch keiner Bauart dieses Verbands begegnet.</div>
+          </div></div>`;
+        continue;
+      }
+      const felder = Array.from({length:braucht}, (_,i) =>
+        `<span style="display:inline-block;width:13px;height:13px;margin-right:3px;
+          border-radius:2px;border:1px solid ${i<habe?"var(--signal)":"var(--kante)"};
+          background:${i<habe?"var(--signal)":"transparent"}"></span>`).join("");
+      const preis = markenPreis(b);
+      const kaufbar = !fertig && (spiel.bergemarken||0) >= preis;
+      h += `<div class="posten-zeile"><div class="rumpf">
+        <div class="bezeichnung">${d.name}
+          <span class="stufe">${habe} / ${braucht}</span></div>
+        <div style="margin:3px 0">${felder}</div>
+        <div class="erlaeuterung">${d.kann}<br>
+          <span style="color:var(--bernstein)">${d.kannNicht}</span></div></div>
+        ${fertig
+          ? `<span class="stufe" style="color:var(--signal)">Baubar</span>`
+          : `<button data-fragment="${b}" ${kaufbar?"":"disabled"}>
+              Stück kaufen (${preis})</button>`}</div>`;
+    }
+  }
+  return h;
+}
+
+function invasionTafel(obj, sys){
+  const gar = obj.garnison || {};
+  const garAnzahl = truppenAnzahl(gar);
+  const gelaende = gelaendeFaktor(obj.typ);
+  const laeuft = spiel.missionen.find(m => m.art === "invasion" && m.ziel === obj.id);
+  const z = zaehleKolonien();
+  const def = OBJEKTE[obj.typ];
+  const grenze = def.zaehltNicht ? false
+    : def.art === "planet" ? z.planeten >= maxPlaneten() : z.habitate >= maxHabitate();
+
+  let h = `<div class="rubrik"><h2>Bodenoffensive</h2>
+    <span class="zusatz">Gelände ×${gelaende.toFixed(2)} für den Verteidiger</span></div>`;
+
+  if(laeuft){
+    const rest = (laeuft.endeAb - Date.now())/1000;
+    const was = laeuft.phase === "belagerung" ? "Belagerung läuft"
+              : laeuft.phase === "hin" ? "Invasionsflotte im Anflug" : "Rückflug";
+    return h + `<div class="meldung">${was} — noch ${zeitText(rest*TEMPO)}.</div>`;
+  }
+
+  const garListe = Object.keys(gar).map(t => `${gar[t]} ${TRUPPEN[t].name}`).join(" · ") || "keine";
+  const eigenListe = Object.keys(TRUPPEN).filter(t=>truppenFrei(t)>0)
+    .map(t => `${truppenFrei(t)} ${TRUPPEN[t].name}`).join(" · ") || "keine Truppen";
+
+  // Wie gut passt die eigene Mischung zu dieser Garnison?
+  let eigen = 0, eigenAnzahl = 0, bester = null, besterWert = 0;
+  for(const t in TRUPPEN){
+    let schnitt = 0, ziele = 0;
+    for(const ft in gar){ schnitt += (KONTER_BODEN[t]?.[ft] || 1) * gar[ft]; ziele += gar[ft]; }
+    const passung = ziele ? schnitt/ziele : 1;
+    if(passung > besterWert){ besterWert = passung; bester = t; }
+    const n = truppenFrei(t); if(!n) continue;
+    eigenAnzahl += n;
+    eigen += n * ((TRUPPEN[t].angriff||0)*passung + (TRUPPEN[t].panzerung||0)*0.5);
+  }
+  // Die Belagerung nimmt der Garnison vorher einen Teil ab
+  const feindStaerke = truppenStaerke(gar) * gelaende * (1 - BELAGERUNG_ZERMUERBUNG);
+  const verhaeltnis = eigen / Math.max(1, feindStaerke);
+
+  const schiffeNoetig = Math.ceil(eigenAnzahl / TRUPPEN_JE_LANDUNGSSCHIFF);
+  const schiffeDa = flotteFrei("landungsschiff");
+  const mitnehmen = Math.min(eigenAnzahl, schiffeDa * TRUPPEN_JE_LANDUNGSSCHIFF);
+  const orbitFrei = !sys.piraten;
+
+  const lage = verhaeltnis >= 1.4 ? "gut" : verhaeltnis >= 0.9 ? "" : "rot";
+  const urteil = eigenAnzahl === 0 ? "Bilden Sie zuerst Truppen in einer Kaserne aus."
+    : verhaeltnis < 0.7 ? "Aussichtslos — die Landung würde zerschlagen."
+    : verhaeltnis < 0.9 ? "Unterlegen. Ein Durchbruch ist unwahrscheinlich."
+    : verhaeltnis < 1.4 ? "Ausgeglichen. Der Ausgang ist offen."
+    : "Überlegen. Die Welt sollte zu nehmen sein.";
+
+  const hindernisse = [];
+  if(!orbitFrei) hindernisse.push("Der Orbit ist nicht frei — erst den Piratenverband schlagen.");
+  if(schiffeDa < 1) hindernisse.push("Keine Landungsschiffe. Ohne Transport keine Landung.");
+  if(eigenAnzahl < 1) hindernisse.push("Keine Truppen bereit.");
+  if(grenze) hindernisse.push(`Höchstzahl erreicht — eine eroberte Welt zählt wie eine besiedelte.`);
+
+  h += `<div class="meldung rot" style="margin-top:0">
+      <strong>Garnison von ${obj.name}</strong> · ${garAnzahl} Verbände
+      · Stärke <span class="zahl">${z0(truppenStaerke(gar)*gelaende)}</span><br>
+      <span style="color:var(--matt)">Aufstellung: ${garListe}</span><br>
+      <span style="color:var(--matt)">Belagerung vor dem Sturm:
+        ${zeitText(belagerungsdauer(obj.id))} — sie zermürbt die Garnison um
+        ${Math.round(BELAGERUNG_ZERMUERBUNG*100)} %.</span></div>
+    <div class="meldung ${lage}">
+      Ihre Truppen: ${eigenListe} · gewichtete Stärke <span class="zahl">${z0(eigen)}</span><br>
+      ${urteil}${bester && besterWert > 1.15
+        ? ` <span style="color:var(--signal)">${TRUPPEN[bester].name} sind gegen diese
+            Garnison besonders wirksam (×${besterWert.toFixed(2)}).</span>` : ""}<br>
+      <span style="color:var(--matt)">Transport: ${schiffeDa} Landungsschiffe
+        (${schiffeNoetig} nötig für alle Truppen) — mitgenommen würden ${mitnehmen} Verbände.</span></div>`;
+
+  if(hindernisse.length)
+    h += `<div class="meldung">${hindernisse.join("<br>")}</div>`;
+
+  h += `<div class="erlaeuterung" style="margin:8px 0">Eine Eroberung kostet
+    ${Math.abs(BEZIEHUNG_INVASION)} Punkte Beziehung zu ${PARTEIEN[obj.fraktion].kurz}.
+    Ab −60 wird jeder Handel verweigert.</div>
+    <button data-invasion="${obj.id}"
+      ${(hindernisse.length)?"disabled":""}>
+      ${hindernisse.length ? "Invasion nicht möglich" : "Invasion starten"}</button>`;
   return h;
 }
 
@@ -1995,6 +4522,8 @@ function objektTafel(objId, g, mitReitern){
       <div class="messwerte" style="margin-top:12px">${felder}</div>
     </div>`;
 
+    h2 += invasionTafel(obj, sys);
+
     h2 += `<div class="rubrik"><h2>Handelsangebote</h2>
       <span class="zusatz">${gesperrt ? "gesperrt" : "wechselt in " + zeitText(rest*TEMPO)}</span></div>`;
 
@@ -2034,6 +4563,7 @@ function objektTafel(objId, g, mitReitern){
     for(const d in obj.felder)
       felder += `<div class="mess"><div class="k">${DISTRIKTE[d].name}</div>
                  <div class="v">${obj.felder[d]}</div></div>`;
+    const vk = obj.vorkommen ? STRATEGISCH[obj.vorkommen] : null;
     return `<div class="flaeche">
       <div class="weltkopf">
         ${scheibe(obj.typ, 88)}
@@ -2044,6 +4574,7 @@ function objektTafel(objId, g, mitReitern){
             · ${def.beschreibung}</div>
         </div>
       </div>
+      ${weltEigenschaften(obj, def)}
       <div class="messwerte">${felder}</div>
       <div class="werte" style="margin-top:13px">${kostenZeile(kosten, null)}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:11px">
@@ -2081,6 +4612,7 @@ function objektTafel(objId, g, mitReitern){
           · ${def.beschreibung}</div>
       </div>
     </div>
+    ${weltEigenschaften(obj, def)}
     <div class="messwerte">
       <div class="mess"><div class="k">Bewohner</div>
         <div class="v ${z.wohnraum&&z.bev>=z.wohnraum?"warn":""}">${z.bev} / ${z.wohnraum}</div></div>
@@ -2133,7 +4665,7 @@ function objektTafel(objId, g, mitReitern){
       <span class="zusatz">Keine Stufen — mehr bauen statt ausbauen</span></div>`;
     for(const d in obj.felder){
       const dd = DISTRIKTE[d], n = k.distrikte[d], max = obj.felder[d];
-      const kosten = distriktKosten(d);
+      const kosten = distriktKosten(d, objId);
       const zug = k.zuweisung["d:"+d] || 0;
       const faktor = 1 + zug*BONUS_PRO_KOPF;
       const ertrag = {};
@@ -2234,11 +4766,28 @@ function seiteWerft(g){
   let rolle = "";
   for(const t in SCHIFFE){
     const d = SCHIFFE[t];
+    // Beuteschiffe erscheinen erst, wenn ihre Blaupause vollständig ist
+    if(d.bauart && !bauartFertig(d.bauart)) continue;
     if(d.rolle !== rolle){
       rolle = d.rolle;
       h += `<div class="rubrik"><h2>${rolle}</h2></div>`;
     }
     let werte = [];
+    if(d.angriff || d.panzerung) werte.push(ZONEN[zoneVon(t)].name);
+    if(d.konterImmun)   werte.push("konterunabhängig");
+    if(d.doppelrolle)   werte.push("zwei Konterrollen");
+    if(d.tarnungBis)    werte.push(`getarnt bis Runde ${d.tarnungBis}`);
+    if(d.aufbau)        werte.push(`+${Math.round(d.aufbau*100)} % je Runde`);
+    if(d.koeder)        werte.push("zieht Feuer");
+    if(d.deckungsbonus) werte.push("verbessert die Deckung");
+    if(d.reflex)        werte.push(`wirft ${Math.round(d.reflex*100)} % zurück`);
+    if(d.welle)         werte.push("Trägerstaffeln");
+    if(d.feindAbschlag) werte.push("stört gegnerische Waffen");
+    if(d.bergung)       werte.push("birgt Verluste");
+    if(d.flottenBonus)  werte.push(`+${Math.round(d.flottenBonus*100)} % Flottenfeuer`);
+    if(d.siphon)        werte.push("flickt die eigene Linie");
+    if(d.verbrauch)     werte.push("verbraucht sich");
+    if(d.massenBonus)   werte.push("stark gegen grosse Flotten");
     if(d.angriff)    werte.push(`Angriff ${d.angriff}`);
     if(d.panzerung)  werte.push(`Panzerung ${d.panzerung}`);
     if(d.kapazitaet) werte.push(`Ladung ${d.kapazitaet}`);
@@ -2248,10 +4797,35 @@ function seiteWerft(g){
       <div class="rumpf">
         <div class="bezeichnung">${d.name} <span class="stufe">${flotteFrei(t)} bereit</span></div>
         <div class="erlaeuterung">${d.beschreibung}${werte.length?" — "+werte.join(", "):""}</div>
-        <div class="werte">${kostenZeile(d.kosten, schiffBauzeit(t))}</div></div>
-      <button data-schiff="${t}" ${(spiel.werftauftrag||w<1||!bezahlbar(d.kosten))?"disabled":""}>
-        ${w<1?"Keine Werft":spiel.werftauftrag?"Werft belegt":"Bauen"}</button></div>`;
+        <div class="werte">${kostenZeile(d.kosten, schiffBauzeit(t))}${seltenZeile(d.seltenKosten)}</div></div>
+      <button data-schiff="${t}" ${(spiel.werftauftrag||w<1||!bezahlbar(d.kosten, d.seltenKosten)
+          ||(d.hoechstzahl && schiffGesamt(t) >= d.hoechstzahl))?"disabled":""}>
+        ${w<1?"Keine Werft"
+          :(d.hoechstzahl && schiffGesamt(t) >= d.hoechstzahl)?"Nur eines möglich"
+          :spiel.werftauftrag?"Werft belegt":"Bauen"}</button></div>`;
   }
+
+  h += `<div class="rubrik"><h2>Gefechtszonen</h2>
+    <span class="zusatz">Wer vorn steht, zieht das Feuer</span></div>
+    <div class="flaeche">`;
+  for(const z in ZONEN){
+    const schiffe = Object.keys(SCHIFFE)
+      .filter(t => zoneVon(t) === z && (SCHIFFE[t].angriff || SCHIFFE[t].panzerung)
+                   && (!SCHIFFE[t].bauart || bauartFertig(SCHIFFE[t].bauart)))
+      .map(t => SCHIFFE[t].name).join(", ") || "—";
+    h += `<div class="posten-zeile"><div class="rumpf">
+      <div class="bezeichnung">${ZONEN[z].name}
+        <span class="stufe">${z === "front" ? "deckt die anderen"
+          : "bis −"+Math.round(ZONEN[z].schutz*100)+" % Beschuss"}</span></div>
+      <div class="erlaeuterung">${ZONEN[z].beschreibung}<br>
+        <span style="color:var(--matt)">${schiffe}</span></div></div></div>`;
+  }
+  h += `<div class="erlaeuterung" style="margin-top:8px">Der Schutz gilt nur, soweit eine
+    vordere Linie vorhanden ist: Ab etwa ${Math.round(DECKUNG_SAETTIGUNG*100)} % Frontanteil
+    ist er voll wirksam, ohne Front entfällt er ganz. Eine reine Schlachtschiffflotte hat
+    niemanden, der das Feuer bindet — sie wird selbst beschossen.</div></div>`;
+
+  h += blaupausenTafel();
 
   // Kontertabelle als Nachschlagewerk
   const kt = ["jaeger","korvette","kreuzer"];
@@ -2273,6 +4847,51 @@ function seiteWerft(g){
     <div class="erlaeuterung" style="margin-top:8px">Jäger sind zu wendig für schwere Geschütze und
       reissen Kreuzer auf. Korvetten fangen Jäger ab. Kreuzer zermalmen Korvetten.
       Es zählt also die Mischung, nicht die Menge.</div></div>`;
+
+  // ---------- Kaserne ----------
+  const ks = kaserneStufe();
+  h += `<div class="rubrik"><h2>Kaserne</h2>
+    <span class="zusatz">${ks ? "Stufe "+ks : "nicht gebaut"}</span></div>`;
+  if(ks < 1){
+    h += `<div class="flaeche"><div class="erlaeuterung">Ohne Kaserne gibt es keine Bodentruppen.
+      Bauen Sie eine auf einer Ihrer Kolonien — sie stellt zugleich die eigene Garnison.</div></div>`;
+  }
+  if(spiel.kaserneauftrag){
+    const rest = (spiel.kaserneauftrag.fertigAb - Date.now())/1000;
+    h += `<div class="vorgang">
+      <div class="zeile1"><strong>In Ausbildung · ${TRUPPEN[spiel.kaserneauftrag.typ].name}</strong>
+        <span class="rest">${zeitText(rest*TEMPO)}</span></div>
+      ${fortschrittBalken(rest, spiel.kaserneauftrag.dauer)}</div>`;
+  }
+  for(const t in TRUPPEN){
+    const d = TRUPPEN[t];
+    h += `<div class="posten-zeile"><div class="rumpf">
+      <div class="bezeichnung">${d.name} <span class="stufe">${truppenFrei(t)} bereit</span></div>
+      <div class="erlaeuterung">${d.beschreibung} — Angriff ${d.angriff}, Panzerung ${d.panzerung}</div>
+      <div class="werte">${kostenZeile(d.kosten, truppeBauzeit(t))}</div></div>
+      <button data-truppe="${t}" ${(spiel.kaserneauftrag||ks<1||!bezahlbar(d.kosten))?"disabled":""}>
+        ${ks<1?"Keine Kaserne":spiel.kaserneauftrag?"Kaserne belegt":"Ausbilden"}</button></div>`;
+  }
+
+  const bt = Object.keys(TRUPPEN);
+  h += `<div class="rubrik"><h2>Wirksamkeit am Boden</h2>
+    <span class="zusatz">Zeile greift Spalte an</span></div>
+    <div class="flaeche" style="overflow-x:auto">
+    <table style="border-collapse:collapse;font-size:12.5px;min-width:340px">
+      <tr><td></td>${bt.map(t=>`<td style="padding:4px 9px;color:var(--matt);
+        font-size:11px;text-transform:uppercase;letter-spacing:.1em">${TRUPPEN[t].name}</td>`).join("")}</tr>
+      ${bt.map(a=>`<tr>
+        <td style="padding:4px 9px;color:var(--matt);font-size:11px;text-transform:uppercase;
+            letter-spacing:.1em">${TRUPPEN[a].name}</td>
+        ${bt.map(v=>{
+          const wv = KONTER_BODEN[a][v];
+          const farbe = wv > 1.2 ? "var(--signal)" : wv < 0.8 ? "var(--alarm)" : "var(--matt)";
+          return `<td class="zahl" style="padding:4px 9px;color:${farbe}">×${wv.toFixed(1)}</td>`;
+        }).join("")}</tr>`).join("")}
+    </table>
+    <div class="erlaeuterung" style="margin-top:8px">Infanterie überrennt Geschützstellungen.
+      Panzer walzen Infanterie nieder. Artillerie knackt Panzer auf Distanz. Dazu kommt der
+      Geländevorteil des Verteidigers — Dschungel und Habitate sind am teuersten zu nehmen.</div></div>`;
   return h;
 }
 
@@ -2306,7 +4925,8 @@ function seiteFlotte(g){
       const flotte = Object.keys(m.schiffe).filter(x=>m.schiffe[x])
         .map(x=>`${m.schiffe[x]} ${SCHIFFE[x].name}`).join(", ") || "—";
       const bez = { erkunden:"Erkundung", besiedeln:"Besiedlung",
-                    sammeln:"Sammelflug", angriff:"Angriff" }[m.art];
+                    sammeln:"Sammelflug", angriff:"Angriff",
+                    foerdern:"Förderung" }[m.art];
       h += `<div class="vorgang" style="margin-top:10px">
         <div class="zeile1">
           <span style="display:flex;gap:9px;align-items:center">
@@ -2374,9 +4994,31 @@ function seiteFlotte(g){
           </div>`;
         }
         h += `</div>`;
-      }else if(r.offen){
+      }else if(r.offen && !(r.bodenrunden && r.bodenrunden.length)){
         h += `<div class="erlaeuterung" style="margin-top:8px">Kein Gefecht — es gibt keinen
           Rundenverlauf zu diesem Einsatz.</div>`;
+      }
+
+      // Aufgeklappt: Bodengefecht Runde für Runde
+      if(r.offen && r.bodenrunden && r.bodenrunden.length){
+        h += `<div style="margin-top:9px;border-top:1px solid var(--kante);padding-top:7px">
+          <div class="erlaeuterung" style="color:var(--bernstein);margin-bottom:4px">Bodengefecht</div>`;
+        for(const rd of r.bodenrunden){
+          const meine = Object.keys(rd.eigenVerlust).length
+            ? Object.keys(rd.eigenVerlust).map(x=>`${rd.eigenVerlust[x]} ${TRUPPEN[x].name}`).join(", ")
+            : "keine";
+          const seine = Object.keys(rd.feindVerlust).length
+            ? Object.keys(rd.feindVerlust).map(x=>`${rd.feindVerlust[x]} ${TRUPPEN[x].name}`).join(", ")
+            : "keine";
+          h += `<div class="erlaeuterung" style="display:flex;gap:10px;flex-wrap:wrap;
+              padding:3px 0;border-bottom:1px solid var(--kante)">
+            <span class="zahl" style="color:var(--matt);min-width:54px">Runde ${rd.nummer}</span>
+            <span style="flex:1 1 130px">Eigene: ${meine}</span>
+            <span style="flex:1 1 130px;color:var(--signal)">Garnison: ${seine}</span>
+            <span class="zahl" style="color:var(--schwach)">${rd.eigenRest} : ${rd.feindRest}</span>
+          </div>`;
+        }
+        h += `</div>`;
       }
       h += `</div>`;
     }
@@ -2412,14 +5054,108 @@ function seiteFlotte(g){
 }
 
 /* ------------------------------------------------------------
+   Fundstück-Fenster
+   Läuft als eigene Schleife, solange es offen ist. Sie hält an,
+   sobald geschlossen wird — im Ruhezustand rechnet nichts.
+   ------------------------------------------------------------ */
+function zeichnenFund(){
+  const huelle = document.getElementById("fundhuelle");
+  const kasten = document.getElementById("fundkasten");
+  if(!fundLauf){ huelle.classList.remove("an"); return; }
+  huelle.classList.add("an");
+
+  const a = (spiel.anomalien||[]).find(x => x.id === fundLauf.anomalieId);
+  const d = ANOMALIEN[a.art];
+
+  if(fundLauf.ergebnis){
+    const e = fundLauf.ergebnis;
+    const liste = Object.keys(e.beute).map(r =>
+      `${z0(e.beute[r])} ${r === "forschung" ? "Forschung" : RES_NAMEN[r]}`).join(" · ");
+    const urteil = e.treffer === ANOMALIE_RUNDEN ? "Sauber geborgen."
+      : e.treffer === 0 ? "Nur Bruchstücke — der Rest ist verloren."
+      : "Teilweise geborgen.";
+    kasten.innerHTML = `
+      <div class="gattung" style="color:${d.farbe}">${d.name}</div>
+      <h3>${urteil}</h3>
+      <div class="erlaeuterung">${e.treffer} von ${ANOMALIE_RUNDEN} Kopplungen sassen —
+        ${Math.round(e.anteil*100)} % der Ausbeute.</div>
+      <div class="meldung gut" style="margin-top:12px">${liste}</div>
+      <button data-fund="schliessen" style="margin-top:14px;width:100%">Schliessen</button>`;
+    return;
+  }
+
+  const pos = zeigerStand();
+  const links = Math.max(0, (fundLauf.zonenMitte - fundLauf.zone/2)) * 100;
+  const breite = fundLauf.zone * 100;
+  let punkte = "";
+  for(let i=1; i<=ANOMALIE_RUNDEN; i++){
+    const zustand = i < fundLauf.runde
+      ? (i <= fundLauf.treffer ? "voll" : "leer") : "";
+    punkte += `<i class="${zustand}"></i>`;
+  }
+
+  kasten.innerHTML = `
+    <div class="gattung" style="color:${d.farbe}">${d.name}</div>
+    <h3>${d.aufgabe}</h3>
+    <div class="erlaeuterung">${d.text}</div>
+    <div class="fundbahn" data-fund="klick">
+      <div class="fundzone" style="left:${links}%;width:${breite}%"></div>
+      <div class="fundzeiger" style="left:${pos*100}%"></div>
+    </div>
+    <div class="fundpunkte">${punkte}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;
+         margin-top:12px;gap:10px;flex-wrap:wrap">
+      <span class="erlaeuterung">Versuch ${fundLauf.runde} von ${ANOMALIE_RUNDEN}</span>
+      <button data-fund="klick">Koppeln</button>
+    </div>
+    <div class="erlaeuterung" style="margin-top:9px">Halten Sie den Zeiger im hellen Feld an.
+      Jeder Treffer erhöht die Ausbeute; ein Fehlversuch kostet nur Anteile.</div>`;
+
+  requestAnimationFrame(() => { if(fundLauf && !fundLauf.ergebnis) zeichnenFund(); });
+}
+
+/* ------------------------------------------------------------
    Seite: Diplomatie — Verhältnis zu den Parteien
    ------------------------------------------------------------ */
+/* Das Geleitangebot der Kartellflotte. Bewusst als Angebot dargestellt,
+   nicht als Drohung — wer ablehnt, verliert nichts. */
+function geleitTafel(){
+  if(!spiel.gesehen || !spiel.gesehen.kartell) return "";
+  let h = `<div class="rubrik"><h2>Kartellflotte</h2>
+    <span class="zusatz">${geleitAktiv() ? "Geleitschutz aktiv" : "kein Geleitschutz"}</span></div>`;
+
+  if(geleitAktiv()){
+    const rest = (spiel.geleit.bisAb - Date.now())/1000;
+    return h + `<div class="meldung gut">
+      Geleitschutz läuft noch <span class="zahl">${zeitText(rest*TEMPO)}</span>.<br>
+      <span style="color:var(--matt)">Handelskurse um ${Math.round(GELEIT_KURSBONUS*100)} %
+      besser, Konvois ohne Zwischenfall, gelegentlich Baupläne aus Kartellbeständen.</span></div>`;
+  }
+  if(spiel.geleit && spiel.geleit.offenBis > Date.now()){
+    const rest = (spiel.geleit.offenBis - Date.now())/1000;
+    const p = spiel.geleit.preis;
+    return h + `<div class="meldung">
+      <strong>Geleitangebot</strong> — gültig noch ${zeitText(rest*TEMPO)}<br>
+      <span style="color:var(--matt)">Einmalige Zahlung, dafür
+      ${Math.round(GELEIT_LAUFZEIT/86400)} Tage lang bessere Kurse, sichere Konvois und
+      gelegentlich ein Bauplan.</span><br>
+      <span style="color:var(--schwach)">Wer ablehnt, verliert nichts — das Angebot
+      kommt später wieder.</span></div>
+      <div class="werte">${kostenZeile(p, 0)}</div>
+      <button data-geleit="1" ${bezahlbar(p)?"":"disabled"}>Geleitschutz annehmen</button>`;
+  }
+  return h + `<div class="erlaeuterung">Zurzeit liegt kein Angebot vor.
+    Die Kartellflotte meldet sich von selbst.</div>`;
+}
+
 function seiteDiplomatie(g){
   handelPruefen();
   let h = `<div class="flaeche"><div class="erlaeuterung">
     Fremde Welten lassen sich nicht besiedeln. Was Sie mit ihren Bewohnern tun, entscheidet
     die Beziehung: Sie beginnt bei 0 und reicht von −100 bis +100. Handel hebt sie, bessere
     Beziehungen bringen bessere Kurse. Ab −60 verweigert eine Partei jeden Handel.</div></div>`;
+
+  h += geleitTafel();
 
   for(const pid in PARTEIEN){
     const d = PARTEIEN[pid];
@@ -2601,8 +5337,16 @@ document.addEventListener("click", e => {
     spiel.auswahl = id; spiel.offenesSystem = spiel.objekte[id].systemId; spiel.ansicht = "objekt";
     speichern(); zeichnen(); return;
   }
+  // Fundstück-Fenster hat Vorrang
+  const fund = e.target.closest("[data-fund]");
+  if(fund){
+    if(fund.dataset.fund === "klick") fundKlick();
+    else fundSchliessen();
+    return;
+  }
   const b = e.target.closest("button");
   if(!b) return;
+  if(b.dataset.anomalie){ anomalieOeffnen(+b.dataset.anomalie); return; }
   if(b.dataset.tab){
     spiel.tab = b.dataset.tab;
     if(b.dataset.tab === "auftrag") spiel.neueAufgaben = 0;
@@ -2630,6 +5374,12 @@ document.addEventListener("click", e => {
   else if(b.dataset.zu)           zuweisen(+b.dataset.id, b.dataset.zu, +b.dataset.delta);
   else if(b.dataset.tech)         erforsche(b.dataset.tech);
   else if(b.dataset.schiff)       schiffBauen(b.dataset.schiff);
+  else if(b.dataset.truppe)       truppeBauen(b.dataset.truppe);
+  else if(b.dataset.fragment)     fragmentKaufen(b.dataset.fragment);
+  else if(b.dataset.geleit)       geleitAnnehmen();
+  else if(b.dataset.ereignis)     ereignisWaehlen(+b.dataset.ereignis, false);
+  else if(b.dataset.cluster)      foerderungStarten(+b.dataset.cluster);
+  else if(b.dataset.invasion)     invasionStarten(+b.dataset.invasion);
   else if(b.dataset.sammeln){
     const n = flotteFrei("frachter");
     if(n > 0 && !spiel.objekte[+b.dataset.sammeln].fraktion)
